@@ -7,7 +7,7 @@ fn main() {
     let mut gps_port = serialport::new("/dev/ttyACM3", 115200)
         .open()
         .unwrap();
-    
+
     let mut rfd_port = serialport::new("/dev/ttyACM3", 115200)
         .open()
         .unwrap();
@@ -20,7 +20,10 @@ fn main() {
             sleep(Duration::from_millis(500));
         }
 
-        gps_port.read_to_string(&mut new_string).unwrap_or_default();
+        match gps_port.read_to_string(&mut new_string) {
+            Ok(_) => (),
+            Err(e) => eprintln!("{:?}", e),
+        }
 
         for line in new_string.lines()
             .filter(|l| !l.is_empty()) 
@@ -37,9 +40,9 @@ fn main() {
             temperature: Some(0.0),
         };
 
-        let packet_json = serde_json::to_string(&packet).unwrap();
+        let packet_json = serde_json::to_string(&packet).unwrap(); 
 
-        rfd_port.write_all(&packet_json.as_bytes()).unwrap();
+        rfd_port.write_all(&packet_json.as_bytes()).unwrap(); 
 
         new_string.clear();
     }
