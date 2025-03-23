@@ -7,7 +7,7 @@ fn main() {
         .open()
         .unwrap();
    
-    let mut rfd_port = serialport::new("/dev/ttyAMA4", 57600)
+    let mut rfd_port = serialport::new("/dev/ttyUSB0", 57600)
         .open()
         .unwrap();
 
