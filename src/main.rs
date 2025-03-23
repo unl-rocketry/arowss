@@ -3,12 +3,11 @@ use nmea::{Nmea, SentenceType, SENTENCE_MAX_LEN};
 use serde::{Deserialize, Serialize};
 
 fn main() {
-    //TODO: need to change the ports for gps_port and rfd_port
-    let mut gps_port = serialport::new("/dev/ttyACM3", 115200)
+    let mut gps_port = serialport::new("/dev/ttyACM0", 115200)
         .open()
         .unwrap();
-
-    let mut rfd_port = serialport::new("/dev/ttyACM3", 115200)
+   
+    let mut rfd_port = serialport::new("/dev/ttyAMA4", 57600)
         .open()
         .unwrap();
 
