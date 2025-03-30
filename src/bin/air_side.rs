@@ -27,8 +27,8 @@ fn main() {
         }
 
         for line in new_string.lines()
-        .filter(|l| !l.is_empty())
-        .filter(|l| l.len() < SENTENCE_MAX_LEN)
+            .filter(|l| !l.is_empty())
+            .filter(|l| l.len() < SENTENCE_MAX_LEN)
         {
             dbg!(&line);
             let _ = nmea_parser.parse_for_fix(&line);
