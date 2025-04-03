@@ -48,6 +48,7 @@ fn main() {
         let packet_json = serde_json::to_string(&packet).unwrap();
 
         rfd_port.write_all(&packet_json.as_bytes()).unwrap();
+        rfd_port.write_all(b"\n").unwrap();
 
         new_string.clear();
     }
