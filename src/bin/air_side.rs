@@ -2,7 +2,7 @@ use std::{thread::sleep, time::Duration};
 use nmea::{Nmea, SentenceType, SENTENCE_MAX_LEN};
 use serde::{Deserialize, Serialize};
 use chrono::NaiveTime;
-use WAIFU::TelemetryPacket;
+use arowss::{TelemetryPacket, GPSPoint};
 
 fn main() {
     let mut gps_port = serialport::new("/dev/ttyACM0", 115200)
@@ -36,11 +36,14 @@ fn main() {
 
         let packet = TelemetryPacket {
             timestamp: nmea_parser.fix_timestamp(),
-            latitude: nmea_parser.latitude(),
-            longitude: nmea_parser.longitude(),
-            altitude: nmea_parser.altitude(),
+            gps_point: match nmea_parser.latitude().is_some() && nmea_parser.longitude().is_some() && nmea_parser.altitude().is_some() {
+                true => Some(GPSPoint::new(nmea_parser.latitude().unwrap(), nmea_parser.longitude().unwrap(), nmea_parser.altitude().unwrap())),
+                false => None
+            },
             pressure: Some(0.0),
             temperature: Some(0.0),
+            voltage: Some(0.0),
+            current: Some(0.0),
         };
 
         dbg!(&packet);

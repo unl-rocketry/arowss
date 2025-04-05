@@ -1,6 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
-use WAIFU::TelemetryPacket;
+use arowss::TelemetryPacket;
 
 fn main() {
     let mut rfd_port = serialport::new("/dev/ttyUSB0", 57600)
