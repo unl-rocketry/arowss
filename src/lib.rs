@@ -1,4 +1,4 @@
-#![allow(non_snake_case)]
+mod runcam;
 
 use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
