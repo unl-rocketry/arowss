@@ -1,7 +1,9 @@
 use std::{sync::Arc, thread::sleep, time::Duration};
+use linux_embedded_hal::I2cdev;
 use nmea::{Nmea, SentenceType, SENTENCE_MAX_LEN};
 use arowss::TelemetryPacket;
 use tokio::sync::RwLock;
+use ina219::{address::Address, SyncIna219};
 
 #[tokio::main]
 async fn main() {
@@ -15,8 +17,13 @@ async fn main() {
         async move { gps_loop(gps_data.clone()) }
     });
 
+    // Spawn INA task
+    tokio::spawn({
+        async move { ina_loop().await }
+    });
+
     // Main packet sending loop. A packet should be sent 4 times per second,
-    // every 250ms. The packet format should allow for individual parts of
+    // every 250ms. The packet format shouAtomicCellld allow for individual parts of
     // the packet information to be unavailable so any single part failing
     // cannot take down the whole system.
     //
@@ -67,5 +74,19 @@ async fn gps_loop(data: Arc<RwLock<Option<Nmea>>>) -> ! {
         }
 
         *data.write().await = Some(nmea_parser.clone());
+    }
+}
+
+async fn ina_loop() -> ! {
+    let i2c = I2cdev::new("/dev/i2c-1").unwrap();
+    let mut ina = SyncIna219::new(i2c, Address::from_byte(0x42).unwrap()).unwrap();
+
+    loop {
+        std::thread::sleep(ina.configuration().unwrap().conversion_time().unwrap());
+
+        println!("Bus Voltage: {}", ina.bus_voltage().unwrap());
+        println!("Shunt Voltage: {}", ina.shunt_voltage().unwrap());
+        println!("Current: {:?}", ina.current_raw().unwrap());
+        println!("Power: {:?}", ina.power_raw().unwrap());
     }
 }
