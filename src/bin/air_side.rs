@@ -73,6 +73,8 @@ async fn gps_loop(data: Arc<RwLock<Option<Nmea>>>) -> ! {
             let _ = nmea_parser.parse_for_fix(&line);
         }
 
+        new_string.clear();
+
         *data.write().await = Some(nmea_parser.clone());
     }
 }
