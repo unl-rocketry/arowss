@@ -1,20 +1,23 @@
 use std::{sync::Arc, thread::sleep, time::Duration};
 use linux_embedded_hal::I2cdev;
-use nmea::{Nmea, SentenceType, SENTENCE_MAX_LEN};
+use nmea::{Nmea, SentenceType};
 use arowss::TelemetryPacket;
-use tokio::sync::RwLock;
+use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, sync::RwLock};
 use ina219::{address::Address, SyncIna219};
+use tokio_serial::SerialPortBuilderExt;
 
 #[tokio::main]
 async fn main() {
-    let mut rfd_port = serialport::new("/dev/ttyUSB0", 57600).open().unwrap();
-    rfd_port.set_timeout(Duration::from_millis(50)).unwrap();
+    let mut rfd_port = tokio_serial::new("/dev/ttyUSB0", 57600)
+        .timeout(Duration::from_millis(50))
+        .open_native_async()
+        .unwrap();
 
     // Spawn GPS task
     let gps_data = Arc::new(RwLock::new(None));
     tokio::spawn({
         let gps_data = gps_data.clone();
-        async move { gps_loop(gps_data.clone()) }
+        async move { gps_loop(gps_data.clone()).await }
     });
 
     // Spawn INA task
@@ -23,7 +26,7 @@ async fn main() {
     });
 
     // Main packet sending loop. A packet should be sent 4 times per second,
-    // every 250ms. The packet format shouAtomicCellld allow for individual parts of
+    // every 250ms. The packet format should allow for individual parts of
     // the packet information to be unavailable so any single part failing
     // cannot take down the whole system.
     //
@@ -45,9 +48,9 @@ async fn main() {
         let packet_crc = packet.crc();
 
         serde_json::to_writer(&mut rfd_port, &packet).unwrap();
-        rfd_port.write_all(b"\n").unwrap();
-        rfd_port.write_all(packet_crc.to_string().as_bytes()).unwrap();
-        rfd_port.write_all(b"\n").unwrap();
+        rfd_port.write_all(b"\n").await.unwrap();
+        rfd_port.write_all(packet_crc.to_string().as_bytes()).await.unwrap();
+        rfd_port.write_all(b"\n").await.unwrap();
     }
 }
 
@@ -55,25 +58,38 @@ async fn main() {
 async fn gps_loop(data: Arc<RwLock<Option<Nmea>>>) -> ! {
     // Set up the GPS serial port. This must utilize the proper port on the
     // raspberry pi.
-    let mut gps_port = serialport::new("/dev/ttyACM0", 115200).open().unwrap();
-    gps_port.set_timeout(Duration::from_millis(50)).unwrap();
+    let mut gps_port = tokio_serial::new("/dev/ttyACM0", 115200)
+        .timeout(Duration::from_millis(50))
+        .open_native_async()
+        .unwrap();
 
     // Set up and configure the NMEA parser.
     let mut nmea_parser = Nmea::create_for_navigation(&[SentenceType::GGA]).unwrap();
-    let mut new_string = String::new();
 
-    // This loop should never exit!
+    let mut buffer = Vec::new();
+
     loop {
-        let _ = gps_port.read_to_string(&mut new_string);
+        let _byte_count = gps_port.read(&mut buffer).await.unwrap();
+
+        if buffer.is_empty() {
+            continue;
+        }
+
+        let new_string = String::from_utf8_lossy(&buffer);
 
         for line in new_string.lines()
             .filter(|l| !l.is_empty())
-            .filter(|l| l.len() < SENTENCE_MAX_LEN)
+            .filter(|l| l.starts_with("$"))
         {
+            // Handle unfinished lines
+            if !line.ends_with("\r\n") {
+
+            }
+
             let _ = nmea_parser.parse_for_fix(&line);
         }
 
-        new_string.clear();
+        buffer.clear();
 
         *data.write().await = Some(nmea_parser.clone());
     }
@@ -81,7 +97,7 @@ async fn gps_loop(data: Arc<RwLock<Option<Nmea>>>) -> ! {
 
 async fn ina_loop() -> ! {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-    let mut ina = SyncIna219::new(i2c, Address::from_byte(0x42).unwrap()).unwrap();
+    let mut ina = SyncIna219::new(i2c, Address::from_byte(0x40).unwrap()).unwrap();
 
     loop {
         std::thread::sleep(ina.configuration().unwrap().conversion_time().unwrap());
