@@ -1,7 +1,7 @@
 use std::{sync::Arc, thread::sleep, time::Duration};
 use linux_embedded_hal::I2cdev;
 use nmea::{Nmea, SentenceType};
-use arowss::TelemetryPacket;
+use arowss::{PowerInfo, TelemetryPacket};
 use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, sync::RwLock};
 use ina219::{address::Address, SyncIna219};
 use tokio_serial::SerialPortBuilderExt;
@@ -21,8 +21,10 @@ async fn main() {
     });
 
     // Spawn INA task
+    let ina_data = Arc::new(RwLock::new(None));
     tokio::spawn({
-        async move { ina_loop().await }
+        let ina_data = ina_data.clone();
+        async move { ina_loop(ina_data).await }
     });
 
     // Main packet sending loop. A packet should be sent 4 times per second,
@@ -36,13 +38,13 @@ async fn main() {
         sleep(Duration::from_millis(250));
 
         let gps = gps_data.try_read().map_or(None, |e| e.clone().or(None));
+        let power_info = ina_data.try_read().map_or(None, |c| c.or(None));
+        let environmental_info = None;
 
         let packet = TelemetryPacket {
             gps,
-            pressure: None,
-            temperature: None,
-            voltage: None,
-            current: None,
+            environmental_info,
+            power_info,
         };
 
         let packet_crc = packet.crc();
@@ -81,12 +83,12 @@ async fn gps_loop(data: Arc<RwLock<Option<Nmea>>>) -> ! {
             .filter(|l| !l.is_empty())
             .filter(|l| l.starts_with("$"))
         {
-            // Handle unfinished lines
+            // Handle unfinished lines eventually?
             if !line.ends_with("\r\n") {
-
+                continue;
             }
 
-            let _ = nmea_parser.parse_for_fix(&line);
+            let _ = nmea_parser.parse_for_fix(line);
         }
 
         buffer.clear();
@@ -95,16 +97,17 @@ async fn gps_loop(data: Arc<RwLock<Option<Nmea>>>) -> ! {
     }
 }
 
-async fn ina_loop() -> ! {
+/// Function to read the INA current sensor.
+async fn ina_loop(data: Arc<RwLock<Option<PowerInfo>>>) -> ! {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut ina = SyncIna219::new(i2c, Address::from_byte(0x40).unwrap()).unwrap();
 
     loop {
         std::thread::sleep(ina.configuration().unwrap().conversion_time().unwrap());
 
-        println!("Bus Voltage: {}", ina.bus_voltage().unwrap());
-        println!("Shunt Voltage: {}", ina.shunt_voltage().unwrap());
-        println!("Current: {:?}", ina.current_raw().unwrap());
-        println!("Power: {:?}", ina.power_raw().unwrap());
+        *data.write().await = Some(PowerInfo {
+            voltage: ina.bus_voltage().unwrap().voltage_mv(),
+            current: ina.current_raw().unwrap().0,
+        });
     }
 }

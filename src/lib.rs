@@ -1,9 +1,10 @@
-mod runcam;
+pub mod runcam;
 
+use crc::Crc;
 use nmea::Nmea;
 use serde::{Deserialize, Serialize};
 
-pub const CRC_CKSUM: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
+pub const CRC_CKSUM: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CKSUM);
 
 /// A packet sent from the rocket to the ground station. Contains information
 /// about position and internal payload conditions. Most fields are optional,
@@ -14,15 +15,11 @@ pub struct TelemetryPacket {
     /// Full GPS telemetry information
     pub gps: Option<Nmea>,
 
-    /// Pressure of the inside of the payload
-    pub pressure: Option<f64>,
-    /// Temperature of the inside of the payload
-    pub temperature: Option<f64>,
+    /// Environmental information
+    pub environmental_info: Option<EnvironmentalInfo>,
 
-    /// The voltage of the main battery
-    pub voltage: Option<f64>,
-    /// Current being drawn by all components from the main battery
-    pub current: Option<f64>,
+    /// Battery related information
+    pub power_info: Option<PowerInfo>,
 }
 
 impl TelemetryPacket {
@@ -40,4 +37,21 @@ impl TelemetryPacket {
         // If they aren't equal, the data is invalid!
         new_crc == crc
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct PowerInfo {
+    /// The voltage of the main battery
+    pub voltage: u16,
+    /// Current being drawn by all components from the main battery
+    pub current: u16,
+}
+
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct EnvironmentalInfo {
+    /// Pressure of the inside of the payload
+    pub pressure: f64,
+    /// Temperature of the inside of the payload
+    pub temperature: f64,
 }

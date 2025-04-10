@@ -2,7 +2,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_serial::SerialPortBuilderExt;
 
-struct RunCam {
+pub struct RunCam {
     port: tokio_serial::SerialStream
 }
 
@@ -44,7 +44,7 @@ impl RunCam {
 }
 
 #[derive(Clone, Copy)]
-enum CommandIds {
+pub enum CommandIds {
     ReadCameraInformation = 0x00,
     CameraControl = 0x01,
     SimulatePress = 0x02,
@@ -53,7 +53,7 @@ enum CommandIds {
 }
 
 #[derive(Clone, Copy)]
-enum ControlActions {
+pub enum ControlActions {
     WifiButton = 0x00,
     PowerButton = 0x01,
     ChangeMode = 0x02,
