@@ -63,7 +63,7 @@ fn crc8(arr: &[u8]) -> u8 {
     let mut crc = 0x00;
     for element in arr {
         crc ^= element; 
-        for i in (1..8).rev() {
+        for _i in 1..8 {
             if crc & 0x80 > 0 {
                 crc = (crc << 1) ^ 0x31;
             } else {
