@@ -1,8 +1,8 @@
-use std::{sync::Arc, thread::sleep, time::Duration};
+use std::{sync::Arc, time::Duration};
 use linux_embedded_hal::I2cdev;
 use nmea::{Nmea, SentenceType};
 use arowss::{PowerInfo, TelemetryPacket};
-use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, sync::RwLock};
+use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, sync::RwLock, time::sleep};
 use ina219::{address::Address, SyncIna219};
 use tokio_serial::SerialPortBuilderExt;
 
@@ -35,7 +35,7 @@ async fn main() {
     // Every packet is a single line of JSON, followed by a newline, followed
     // by a CRC, followed by another newline. The CRC validates the JSON.
     loop {
-        sleep(Duration::from_millis(250));
+        sleep(Duration::from_millis(250)).await;
 
         let gps = gps_data.try_read().map_or(None, |e| e.clone().or(None));
         let power_info = ina_data.try_read().map_or(None, |c| c.or(None));
@@ -103,7 +103,7 @@ async fn ina_loop(data: Arc<RwLock<Option<PowerInfo>>>) -> ! {
     let mut ina = SyncIna219::new(i2c, Address::from_byte(0x40).unwrap()).unwrap();
 
     loop {
-        std::thread::sleep(ina.configuration().unwrap().conversion_time().unwrap());
+        sleep(ina.configuration().unwrap().conversion_time().unwrap()).await;
 
         *data.write().await = Some(PowerInfo {
             voltage: ina.bus_voltage().unwrap().voltage_mv(),
