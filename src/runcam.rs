@@ -1,3 +1,6 @@
+use std::time::Duration;
+use tokio_serial::SerialPortBuilderExt;
+
 struct RunCam {
     port: tokio_serial::SerialStream
 }
@@ -51,20 +54,20 @@ impl RequestPacket {
             self.command_id,
             self.action_id 
         ];
-        self.crc = crc8(crc_array)
+        self.crc = crc8(&crc_array)
     } 
 }
 
 // Calculate the crc for the packet
-fn crc8(arr: &[i8]) -> i8 {
+fn crc8(arr: &[u8]) -> u8 {
     let mut crc = 0x00;
     for element in arr {
         crc ^= element; 
         for i in (1..8).rev() {
-            if crc & 0x80 {
+            if crc & 0x80 > 0 {
                 crc = (crc << 1) ^ 0x31;
             } else {
-                crc = crc << 1;
+                crc <<= 1;
             }
         }
     }
