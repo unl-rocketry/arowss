@@ -1,4 +1,5 @@
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_serial::SerialPortBuilderExt;
 
 struct RunCam {
@@ -8,61 +9,63 @@ struct RunCam {
 impl RunCam {
     pub fn new(port: &str) -> Self {
         // Open port for runcam
-        let mut runcam_port = tokio_serial::new(port, 57600)
+        let runcam_port = tokio_serial::new(port, 115200)
             .timeout(Duration::from_millis(50))
             .open_native_async()
             .unwrap();
+
         Self {
             port: runcam_port
         }
     }
-}
 
-enum ActionSimulate {
-    WifiButton = 0x0,
-    PowerButton = 0x1,
-    ChangeMode = 0x2,
-    StartRecording = 0x3,
-    StopRecording = 0x4
-}
+    pub async fn get_camera_information(&mut self) -> (u8, u16) {
+        let data = [0xCC, CommandIds::ReadCameraInformation as u8];
+        let crc = crc8(&data);
 
-// Packet to send to the runcam. Contains a header, command ID, the 
-// action ID of the desired runcam action, and the crc for the packet.
-struct RequestPacket {
-    header: u8,
-    command_id: u8,
-    action_id: u8,
-    crc: u8
-}
+        self.port.write_all(&data).await.unwrap();
+        self.port.write_u8(crc).await.unwrap();
 
-impl Default for RequestPacket {
-    fn default() -> Self {
-        Self {
-            header: 0xCC, 
-            command_id: 0x01, 
-            action_id: Default::default(), 
-            crc: Default::default() 
-        }
+        let _ = self.port.read_u8().await.unwrap();
+        let protocol_version = self.port.read_u8().await.unwrap();
+        let feature = self.port.read_u16().await.unwrap();
+        let _ret_crc = self.port.read_u8().await.unwrap();
+
+        (protocol_version, feature)
+    }
+
+    pub async fn write_camera_control(&mut self, action: ControlActions) {
+        let data = [0xCC, CommandIds::CameraControl as u8, action as u8];
+        let crc = crc8(&data);
+
+        self.port.write_all(&data).await.unwrap();
+        self.port.write_u8(crc).await.unwrap();
     }
 }
 
-impl RequestPacket {
-    pub fn insert_crc(&mut self) {
-        // Create input array for crc8 calculation
-        let crc_array = [
-            self.header,
-            self.command_id,
-            self.action_id 
-        ];
-        self.crc = crc8(&crc_array)
-    } 
+#[derive(Clone, Copy)]
+enum CommandIds {
+    ReadCameraInformation = 0x00,
+    CameraControl = 0x01,
+    SimulatePress = 0x02,
+    SimulateRelease = 0x03,
+    SimulateHandshake = 0x04,
 }
 
-// Calculate the crc for the packet
+#[derive(Clone, Copy)]
+enum ControlActions {
+    WifiButton = 0x00,
+    PowerButton = 0x01,
+    ChangeMode = 0x02,
+    StartRecording = 0x03,
+    StopRecording = 0x04
+}
+
+/// Calculate the crc for the packet
 fn crc8(arr: &[u8]) -> u8 {
     let mut crc = 0x00;
     for element in arr {
-        crc ^= element; 
+        crc ^= element;
         for _i in 1..8 {
             if crc & 0x80 > 0 {
                 crc = (crc << 1) ^ 0x31;
