@@ -122,16 +122,16 @@ async fn ina_loop(data: Arc<RwLock<Option<PowerInfo>>>) -> ! {
 }
 
 async fn bmp_loop(data: Arc<RwLock<Option<EnvironmentalInfo>>>) -> ! {
-    let i2c = I2cdev::new("/dev/i2c-2").unwrap();
+    let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut delay = linux_embedded_hal::Delay;
     let mut bmp = BMP388::new_blocking(i2c, bmp388::Addr::Primary as u8, &mut delay).unwrap();
-    
+
     // set power control to normal
     bmp.set_power_control(PowerControl::normal()).unwrap();
 
     loop {
         let sensor_data = bmp.sensor_values().unwrap();
-        
+
         *data.write().await = Some(EnvironmentalInfo {
             pressure: sensor_data.pressure,
             temperature: sensor_data.temperature,
