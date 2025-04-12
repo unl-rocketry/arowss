@@ -117,7 +117,7 @@ async fn ina_loop(data: Sender<Option<PowerInfo>>) -> ! {
 async fn bmp_loop(data: Sender<Option<EnvironmentalInfo>>) -> ! {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut delay = linux_embedded_hal::Delay;
-    let mut bmp = BMP388::new_blocking(i2c, bmp388::Addr::Primary as u8, &mut delay).unwrap();
+    let mut bmp = BMP388::new_blocking(i2c, bmp388::Addr::Secondary as u8, &mut delay).unwrap();
 
     // set power control to normal
     bmp.set_power_control(PowerControl::normal()).unwrap();
