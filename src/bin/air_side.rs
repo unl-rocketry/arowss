@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use bmp388::{PowerControl, BMP388};
 use linux_embedded_hal::I2cdev;
 use nmea::{Nmea, SentenceType};
 use arowss::{EnvironmentalInfo, PowerInfo, TelemetryPacket};
-use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, join, select, sync::RwLock, time::sleep};
+use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, sync::watch::{self, Sender}, time::{sleep, sleep_until, Instant}};
 use ina219::{address::Address, SyncIna219};
 use tokio_serial::SerialPortBuilderExt;
 
@@ -15,25 +15,16 @@ async fn main() {
         .unwrap();
 
     // Spawn GPS task
-    let gps_data = Arc::new(RwLock::new(None));
-    tokio::spawn({
-        let gps_data = gps_data.clone();
-        async move { gps_loop(gps_data.clone()).await }
-    });
+    let (gps_tx, gps_rx) = watch::channel(None);
+    tokio::spawn(async move { gps_loop(gps_tx).await });
 
     // Spawn INA task
-    let ina_data = Arc::new(RwLock::new(None));
-    tokio::spawn({
-        let ina_data = ina_data.clone();
-        async move { ina_loop(ina_data).await }
-    });
+    let (ina_tx, ina_rx) = watch::channel(None);
+    tokio::spawn(async move { ina_loop(ina_tx).await });
 
     // Spawn BMP task
-    let bmp_data = Arc::new(RwLock::new(None));
-    tokio::spawn({
-        let bmp_data = bmp_data.clone();
-        async move { bmp_loop(bmp_data).await }
-    });
+    let (bmp_tx, bmp_rx) = watch::channel(None);
+    tokio::spawn(async move { bmp_loop(bmp_tx).await });
 
 
     // Main packet sending loop. A packet should be sent 4 times per second,
@@ -44,29 +35,31 @@ async fn main() {
     // Every packet is a single line of JSON, followed by a newline, followed
     // by a CRC, followed by another newline. The CRC validates the JSON.
     loop {
-        sleep(Duration::from_millis(250)).await;
+        let timeout = Instant::now() + Duration::from_millis(250);
 
-        let gps = gps_data.try_read().map_or(None, |e| e.clone());
-        let power_info = ina_data.try_read().map_or(None, |c| *c);
-        let environmental_info = bmp_data.try_read().map_or(None, |d| *d);
-
+        // Construct a packet from the data
         let packet = TelemetryPacket {
-            gps,
-            environmental_info,
-            power_info,
+            gps: gps_rx.borrow().clone(),
+            power_info: *ina_rx.borrow(),
+            environmental_info: *bmp_rx.borrow(),
         };
 
+        // Calculate the CRC of the packet based on its data.
         let packet_crc = packet.crc();
 
+        // Write the data out
         serde_json::to_writer(&mut rfd_port, &packet).unwrap();
         rfd_port.write_all(b"\n").await.unwrap();
         rfd_port.write_all(packet_crc.to_string().as_bytes()).await.unwrap();
         rfd_port.write_all(b"\n").await.unwrap();
+
+        // If there is any time left over, sleep
+        sleep_until(timeout).await;
     }
 }
 
 /// Function to read the GPS module.
-async fn gps_loop(data: Arc<RwLock<Option<Nmea>>>) -> ! {
+async fn gps_loop(data: Sender<Option<Nmea>>) -> ! {
     // Set up the GPS serial port. This must utilize the proper port on the
     // raspberry pi.
     let mut gps_port = tokio_serial::new("/dev/ttyACM0", 115200)
@@ -102,26 +95,26 @@ async fn gps_loop(data: Arc<RwLock<Option<Nmea>>>) -> ! {
 
         buffer.clear();
 
-        *data.write().await = Some(nmea_parser.clone());
+        data.send(Some(nmea_parser.clone())).unwrap();
     }
 }
 
 /// Function to read the INA current sensor.
-async fn ina_loop(data: Arc<RwLock<Option<PowerInfo>>>) -> ! {
+async fn ina_loop(data: Sender<Option<PowerInfo>>) -> ! {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut ina = SyncIna219::new(i2c, Address::from_byte(0x40).unwrap()).unwrap();
 
     loop {
         sleep(ina.configuration().unwrap().conversion_time().unwrap()).await;
 
-        *data.write().await = Some(PowerInfo {
+        data.send(Some(PowerInfo {
             voltage: ina.bus_voltage().unwrap().voltage_mv(),
             current: ina.current_raw().unwrap().0,
-        });
+        })).unwrap();
     }
 }
 
-async fn bmp_loop(data: Arc<RwLock<Option<EnvironmentalInfo>>>) -> ! {
+async fn bmp_loop(data: Sender<Option<EnvironmentalInfo>>) -> ! {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut delay = linux_embedded_hal::Delay;
     let mut bmp = BMP388::new_blocking(i2c, bmp388::Addr::Primary as u8, &mut delay).unwrap();
@@ -132,9 +125,9 @@ async fn bmp_loop(data: Arc<RwLock<Option<EnvironmentalInfo>>>) -> ! {
     loop {
         let sensor_data = bmp.sensor_values().unwrap();
 
-        *data.write().await = Some(EnvironmentalInfo {
+        data.send(Some(EnvironmentalInfo {
             pressure: sensor_data.pressure,
             temperature: sensor_data.temperature,
-        });
+        })).unwrap();
     }
 }
