@@ -36,6 +36,7 @@ dependencies = [
 name = "arowss"
 version = "0.1.0"
 dependencies = [
+ "bmp388",
  "chrono",
  "crc",
  "ina219",
@@ -94,6 +95,15 @@ name = "bitflags"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c8214115b7bf84099f1309324e63141d4c5d7cc26862f97a0a857dbefe165bd"
+
+[[package]]
+name = "bmp388"
+version = "0.1.0"
+source = "git+https://github.com/ibutra/bmp388.git#cb31307373d485cf35991f90dfe9550e0cdf9200"
+dependencies = [
+ "embedded-hal",
+ "num-traits",
+]
 
 [[package]]
 name = "bumpalo"

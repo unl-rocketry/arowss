@@ -6,6 +6,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+bmp388 = { git = "https://github.com/ibutra/bmp388.git" }
 chrono = { version = "0.4", features = ["serde"] }
 crc = "3.2.1"
 ina219 = { version = "0.2.0", features = ["async", "paranoid", "std", "sync"], default-features = false }

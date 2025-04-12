@@ -1,8 +1,9 @@
 use std::{sync::Arc, time::Duration};
+use bmp388::{PowerControl, BMP388};
 use linux_embedded_hal::I2cdev;
 use nmea::{Nmea, SentenceType};
-use arowss::{PowerInfo, TelemetryPacket};
-use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, sync::RwLock, time::sleep};
+use arowss::{EnvironmentalInfo, PowerInfo, TelemetryPacket};
+use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, join, select, sync::RwLock, time::sleep};
 use ina219::{address::Address, SyncIna219};
 use tokio_serial::SerialPortBuilderExt;
 
@@ -27,6 +28,14 @@ async fn main() {
         async move { ina_loop(ina_data).await }
     });
 
+    // Spawn BMP task
+    let bmp_data = Arc::new(RwLock::new(None));
+    tokio::spawn({
+        let bmp_data = bmp_data.clone();
+        async move { bmp_loop(bmp_data).await }
+    });
+
+
     // Main packet sending loop. A packet should be sent 4 times per second,
     // every 250ms. The packet format should allow for individual parts of
     // the packet information to be unavailable so any single part failing
@@ -37,9 +46,9 @@ async fn main() {
     loop {
         sleep(Duration::from_millis(250)).await;
 
-        let gps = gps_data.try_read().map_or(None, |e| e.clone().or(None));
-        let power_info = ina_data.try_read().map_or(None, |c| c.or(None));
-        let environmental_info = None;
+        let gps = gps_data.try_read().map_or(None, |e| e.clone());
+        let power_info = ina_data.try_read().map_or(None, |c| *c);
+        let environmental_info = bmp_data.try_read().map_or(None, |d| *d);
 
         let packet = TelemetryPacket {
             gps,
@@ -108,6 +117,24 @@ async fn ina_loop(data: Arc<RwLock<Option<PowerInfo>>>) -> ! {
         *data.write().await = Some(PowerInfo {
             voltage: ina.bus_voltage().unwrap().voltage_mv(),
             current: ina.current_raw().unwrap().0,
+        });
+    }
+}
+
+async fn bmp_loop(data: Arc<RwLock<Option<EnvironmentalInfo>>>) -> ! {
+    let i2c = I2cdev::new("/dev/i2c-2").unwrap();
+    let mut delay = linux_embedded_hal::Delay;
+    let mut bmp = BMP388::new_blocking(i2c, bmp388::Addr::Primary as u8, &mut delay).unwrap();
+    
+    // set power control to normal
+    bmp.set_power_control(PowerControl::normal()).unwrap();
+
+    loop {
+        let sensor_data = bmp.sensor_values().unwrap();
+        
+        *data.write().await = Some(EnvironmentalInfo {
+            pressure: sensor_data.pressure,
+            temperature: sensor_data.temperature,
         });
     }
 }
