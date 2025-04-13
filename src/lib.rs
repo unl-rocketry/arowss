@@ -46,7 +46,6 @@ pub struct PowerInfo {
     pub current: u16,
 }
 
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct EnvironmentalInfo {
     /// Pressure of the inside of the payload

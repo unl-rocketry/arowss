@@ -1,11 +1,15 @@
-use std::sync::Arc;
-use std::time::Duration;
-use bmp388::{PowerControl, BMP388};
+use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
+use bmp388::{BMP388, PowerControl};
+use ina219::{SyncIna219, address::Address};
 use linux_embedded_hal::I2cdev;
 use nmea::{Nmea, SentenceType};
-use arowss::{EnvironmentalInfo, PowerInfo, TelemetryPacket, GpsInfo};
-use tokio::{io::{AsyncReadExt as _, AsyncWriteExt as _}, sync::Mutex, time::{sleep, sleep_until, Instant}};
-use ina219::{address::Address, SyncIna219};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::{
+    io::{AsyncReadExt as _, AsyncWriteExt as _},
+    sync::Mutex,
+    time::{Instant, sleep, sleep_until},
+};
 use tokio_serial::SerialPortBuilderExt;
 
 #[tokio::main]
@@ -61,7 +65,10 @@ async fn main() {
         rfd_port.write_all(&json_vec).await.unwrap();
 
         rfd_port.write_all(b"\n").await.unwrap();
-        rfd_port.write_all(packet_crc.to_string().as_bytes()).await.unwrap();
+        rfd_port
+            .write_all(packet_crc.to_string().as_bytes())
+            .await
+            .unwrap();
         rfd_port.write_all(b"\n").await.unwrap();
 
         // If there is any time left over, sleep
@@ -98,7 +105,8 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
 
         // Loop over all the lines in the string, skipping the last one if it's
         // incomplete
-        for line in gps_string.lines()
+        for line in gps_string
+            .lines()
             .take(line_count - last_line_incomplete as usize)
             .filter(|l| !l.is_empty())
             .filter(|l| l.starts_with("$"))

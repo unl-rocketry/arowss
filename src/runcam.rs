@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_serial::SerialPortBuilderExt;
 
 pub struct RunCam {
-    port: tokio_serial::SerialStream
+    port: tokio_serial::SerialStream,
 }
 
 impl RunCam {
@@ -14,9 +14,7 @@ impl RunCam {
             .open_native_async()
             .unwrap();
 
-        Self {
-            port: runcam_port
-        }
+        Self { port: runcam_port }
     }
 
     pub async fn get_camera_information(&mut self) -> (u8, u16) {
@@ -58,7 +56,7 @@ pub enum ControlActions {
     PowerButton = 0x01,
     ChangeMode = 0x02,
     StartRecording = 0x03,
-    StopRecording = 0x04
+    StopRecording = 0x04,
 }
 
 /// Calculate the crc for the packet
