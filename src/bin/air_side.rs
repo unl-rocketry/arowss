@@ -45,10 +45,10 @@ async fn main() {
     // the packet information to be unavailable so any single part failing
     // cannot take down the whole system.
     //
-    // Every packet is a single line of JSON, followed by a newline, followed
-    // by a CRC, followed by another newline. The CRC validates the JSON.
+    // Every packet begins with a CRC as a decimal number, followed by a space
+    // followed by the JSON data, and terminated by a newline (`\n`).
     loop {
-        let timeout = Instant::now() + Duration::from_millis(500);
+        let timeout = Instant::now() + Duration::from_millis(250);
 
         // Construct a packet from the data
         let packet = TelemetryPacket {
@@ -61,15 +61,10 @@ async fn main() {
         let packet_crc = packet.crc();
 
         // Write the data out
+        rfd_port.write_all(packet_crc.to_string().as_bytes()).await.unwrap();
+        rfd_port.write_u8(b' ').await.unwrap();
         let json_vec = serde_json::to_vec(&packet).unwrap();
         rfd_port.write_all(&json_vec).await.unwrap();
-
-        rfd_port.write_all(b"\n").await.unwrap();
-        rfd_port
-            .write_all(packet_crc.to_string().as_bytes())
-            .await
-            .unwrap();
-        rfd_port.write_all(b"\n").await.unwrap();
 
         // If there is any time left over, sleep
         sleep_until(timeout).await;
