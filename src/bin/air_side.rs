@@ -155,6 +155,8 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) -> ! {
     bmp.set_power_control(PowerControl::normal()).unwrap();
 
     loop {
+        sleep(Duration::from_millis(250)).await;
+
         let sensor_data = bmp.sensor_values().unwrap();
 
         *data.lock().await = Some(EnvironmentalInfo {
