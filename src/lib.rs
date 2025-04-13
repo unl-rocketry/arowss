@@ -1,7 +1,6 @@
 pub mod runcam;
 
 use crc::Crc;
-use nmea::Nmea;
 use serde::{Deserialize, Serialize};
 
 pub const CRC_CKSUM: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CKSUM);
@@ -13,7 +12,7 @@ pub const CRC_CKSUM: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CKSUM);
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetryPacket {
     /// Full GPS telemetry information
-    pub gps: Option<Nmea>,
+    pub gps: Option<GpsInfo>,
 
     /// Environmental information
     pub environmental_info: Option<EnvironmentalInfo>,
@@ -54,4 +53,11 @@ pub struct EnvironmentalInfo {
     pub pressure: f64,
     /// Temperature of the inside of the payload
     pub temperature: f64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct GpsInfo {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub altitude: f32,
 }
