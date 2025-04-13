@@ -26,7 +26,6 @@ async fn main() {
     let (bmp_tx, bmp_rx) = watch::channel(None);
     tokio::spawn(async move { bmp_loop(bmp_tx).await });
 
-
     // Main packet sending loop. A packet should be sent 4 times per second,
     // every 250ms. The packet format should allow for individual parts of
     // the packet information to be unavailable so any single part failing
@@ -85,11 +84,6 @@ async fn gps_loop(data: Sender<Option<Nmea>>) -> ! {
             .filter(|l| !l.is_empty())
             .filter(|l| l.starts_with("$"))
         {
-            // Handle unfinished lines eventually?
-            if !line.ends_with("\r\n") {
-                continue;
-            }
-
             let _ = nmea_parser.parse_for_fix(line);
         }
 
