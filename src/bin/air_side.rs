@@ -1,6 +1,6 @@
 use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
-use ina219::{SyncIna219, address::Address};
+use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
 use nmea::{Nmea, SentenceType};
 use std::sync::Arc;
@@ -134,7 +134,7 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
 /// Function to read the INA current sensor.
 async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) -> ! {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-    let mut ina = SyncIna219::new(i2c, Address::from_byte(0x40).unwrap()).unwrap();
+    let mut ina = SyncIna219::new(i2c, ina219::address::Address::from_byte(0x40).unwrap()).unwrap();
 
     loop {
         sleep(Duration::from_millis(250)).await;
@@ -154,8 +154,16 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) -> ! {
     // set power control to normal
     bmp.set_power_control(PowerControl::normal()).unwrap();
 
+    // Set up measurement settings
+    bmp.set_oversampling(bmp388::config::OversamplingConfig {
+        osr_pressure: bmp388::Oversampling::x8,
+        osr_temperature: bmp388::Oversampling::x1
+    }).unwrap();
+    bmp.set_filter(bmp388::Filter::c3).unwrap();
+    bmp.set_sampling_rate(bmp388::SamplingRate::ms20).unwrap();
+
     loop {
-        sleep(Duration::from_millis(250)).await;
+        sleep(Duration::from_millis(50)).await;
 
         let sensor_data = bmp.sensor_values().unwrap();
 
