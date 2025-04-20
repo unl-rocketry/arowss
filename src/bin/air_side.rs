@@ -65,6 +65,7 @@ async fn main() {
         rfd_port.write_u8(b' ').await.unwrap();
         let json_vec = serde_json::to_vec(&packet).unwrap();
         rfd_port.write_all(&json_vec).await.unwrap();
+        rfd_port.write_u8(b'\n').await.unwrap();
 
         // If there is any time left over, sleep
         sleep_until(timeout).await;
@@ -83,51 +84,33 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
     // Set up and configure the NMEA parser.
     let mut nmea_parser = Nmea::create_for_navigation(&[SentenceType::GGA]).unwrap();
 
-    let mut buffer = Vec::new();
+    let mut buffer = [0u8; 4096];
 
     loop {
-        let byte_count = gps_port.read_buf(&mut buffer).await.unwrap();
+        let byte_count = gps_port.read(&mut buffer).await.unwrap();
 
         if byte_count == 0 {
             continue;
         }
 
-        let gps_string = String::from_utf8_lossy(&buffer[..byte_count]);
-        let line_count = gps_string.lines().count();
+        let new_string = String::from_utf8_lossy(&buffer[..byte_count]);
 
-        // If the last line does not end with `\r\n` then it needs more data
-        let last_line_incomplete = !gps_string.ends_with("\r\n");
-
-        // Loop over all the lines in the string, skipping the last one if it's
-        // incomplete
-        for line in gps_string
-            .lines()
-            .take(line_count - last_line_incomplete as usize)
+        for line in new_string.lines()
             .filter(|l| !l.is_empty())
             .filter(|l| l.starts_with("$"))
         {
             let _ = nmea_parser.parse_for_fix(line);
         }
 
-        if nmea_parser.latitude.is_some()
-            && nmea_parser.longitude.is_some()
-            && nmea_parser.altitude.is_some()
-        {
-            *data.lock().await = Some(GpsInfo {
-                latitude: nmea_parser.latitude.unwrap(),
-                longitude: nmea_parser.longitude.unwrap(),
-                altitude: nmea_parser.altitude.unwrap(),
-            });
+        if nmea_parser.latitude.is_none() || nmea_parser.longitude.is_none() || nmea_parser.altitude.is_none() {
+            continue
         }
 
-        // Put the last line at the beginning of the new buffer
-        if last_line_incomplete {
-            let last_line = gps_string.lines().last().unwrap().to_string();
-            buffer.clear();
-            buffer.copy_from_slice(last_line.as_bytes());
-        } else {
-            buffer.clear();
-        }
+        *data.lock().await = Some(GpsInfo {
+            latitude: nmea_parser.latitude.unwrap(),
+            longitude: nmea_parser.longitude.unwrap(),
+            altitude: nmea_parser.altitude.unwrap(),
+        });
     }
 }
 
