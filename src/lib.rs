@@ -1,14 +1,16 @@
 pub mod runcam;
+pub mod utils;
 
 use crc::Crc;
 use serde::{Deserialize, Serialize};
 
 pub const CRC_CKSUM: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CKSUM);
 
-/// A packet sent from the rocket to the ground station. Contains information
-/// about position and internal payload conditions. Most fields are optional,
-/// as it is possible for any part of the payload to be not functioning while
-/// still grabbing some data from it.
+/// A packet sent from the rocket to the ground station.
+///
+/// Contains information about position and internal payload conditions.
+/// Most fields are optional, as it is possible for any part of the payload
+/// to be not functioning while still grabbing some data from it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetryPacket {
     /// Full GPS telemetry information
@@ -24,8 +26,8 @@ pub struct TelemetryPacket {
 impl TelemetryPacket {
     /// Calculate CRC from json serialized packet data.
     pub fn crc(&self) -> u32 {
-        let self_json = serde_json::to_string(self).unwrap();
-        CRC_CKSUM.checksum(self_json.as_bytes())
+        let self_json = serde_json::to_vec(self).unwrap();
+        CRC_CKSUM.checksum(&self_json)
     }
 
     /// Validate the packet against its CRC.

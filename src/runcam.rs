@@ -1,43 +1,46 @@
-use std::time::Duration;
+use std::{error::Error, io, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_serial::SerialPortBuilderExt;
+
+use crate::utils::crc8;
 
 pub struct RunCam {
     port: tokio_serial::SerialStream,
 }
 
 impl RunCam {
-    pub fn new(port: &str) -> Self {
+    pub fn new(port: &str) -> Result<Self, Box<dyn Error>> {
         // Open port for runcam
-        let runcam_port = tokio_serial::new(port, 115200)
+        let runcam_port = tokio_serial::new(port, 115_200)
             .timeout(Duration::from_millis(50))
-            .open_native_async()
-            .unwrap();
+            .open_native_async()?;
 
-        Self { port: runcam_port }
+        Ok(Self { port: runcam_port })
     }
 
-    pub async fn get_camera_information(&mut self) -> (u8, u16) {
+    pub async fn get_camera_information(&mut self) -> Result<(u8, u16), io::Error> {
         let data = [0xCC, CommandIds::ReadCameraInformation as u8];
         let crc = crc8(&data);
 
-        self.port.write_all(&data).await.unwrap();
-        self.port.write_u8(crc).await.unwrap();
+        self.port.write_all(&data).await?;
+        self.port.write_u8(crc).await?;
 
-        let _ = self.port.read_u8().await.unwrap();
-        let protocol_version = self.port.read_u8().await.unwrap();
-        let feature = self.port.read_u16().await.unwrap();
-        let _ret_crc = self.port.read_u8().await.unwrap();
+        let _ = self.port.read_u8().await?;
+        let protocol_version = self.port.read_u8().await?;
+        let feature = self.port.read_u16().await?;
+        let _ret_crc = self.port.read_u8().await?;
 
-        (protocol_version, feature)
+        Ok((protocol_version, feature))
     }
 
-    pub async fn write_camera_control(&mut self, action: ControlActions) {
+    pub async fn write_camera_control(&mut self, action: ControlActions) -> Result<(), io::Error> {
         let data = [0xCC, CommandIds::CameraControl as u8, action as u8];
         let crc = crc8(&data);
 
-        self.port.write_all(&data).await.unwrap();
-        self.port.write_u8(crc).await.unwrap();
+        self.port.write_all(&data).await?;
+        self.port.write_u8(crc).await?;
+
+        Ok(())
     }
 }
 
@@ -57,20 +60,4 @@ pub enum ControlActions {
     ChangeMode = 0x02,
     StartRecording = 0x03,
     StopRecording = 0x04,
-}
-
-/// Calculate the crc for the packet
-fn crc8(arr: &[u8]) -> u8 {
-    let mut crc = 0x00;
-    for element in arr {
-        crc ^= element;
-        for _ in 0..8 {
-            if crc & 0x80 > 0 {
-                crc = (crc << 1) ^ 0xd5;
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc
 }

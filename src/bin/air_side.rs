@@ -1,4 +1,4 @@
-use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
+use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
@@ -6,18 +6,28 @@ use nmea::{Nmea, SentenceType};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{
-    io::{AsyncReadExt as _, AsyncWriteExt as _},
-    sync::Mutex,
-    time::{Instant, sleep, sleep_until},
+    io::{AsyncReadExt as _, AsyncWriteExt as _}, join, sync::Mutex, time::{sleep, sleep_until, Instant}
 };
 use tokio_serial::SerialPortBuilderExt;
 
 #[tokio::main]
 async fn main() {
-    let mut rfd_port = tokio_serial::new("/dev/ttyUSB0", 57600)
+    let send = tokio::spawn(sending_loop());
+    let recv = tokio::spawn(command_loop());
+
+    #[allow(unused_must_use)]
+    {
+        join!(send, recv);
+    }
+}
+
+async fn sending_loop() {
+    let mut rfd_send = tokio_serial::new("/dev/ttyUSB0", 57600)
         .timeout(Duration::from_millis(50))
         .open_native_async()
         .unwrap();
+
+    rfd_send.set_exclusive(false).unwrap();
 
     // Spawn GPS task
     let gps_data = Arc::new(Mutex::new(None));
@@ -61,18 +71,53 @@ async fn main() {
         let packet_crc = packet.crc();
 
         // Write the data out
-        rfd_port.write_all(packet_crc.to_string().as_bytes()).await.unwrap();
-        rfd_port.write_u8(b' ').await.unwrap();
+        rfd_send.write_all(packet_crc.to_string().as_bytes()).await.unwrap();
+        rfd_send.write_u8(b' ').await.unwrap();
         let json_vec = serde_json::to_vec(&packet).unwrap();
-        rfd_port.write_all(&json_vec).await.unwrap();
-        rfd_port.write_u8(b'\n').await.unwrap();
+        rfd_send.write_all(&json_vec).await.unwrap();
+        rfd_send.write_u8(b'\n').await.unwrap();
 
         // If there is any time left over, sleep
         sleep_until(timeout).await;
     }
 }
 
-/// Function to read the GPS module.
+async fn command_loop() {
+    let mut rfd_recv = tokio_serial::new("/dev/ttyUSB0", 57600)
+        .timeout(Duration::from_millis(50))
+        .open_native_async()
+        .unwrap();
+
+    rfd_recv.set_exclusive(false).unwrap();
+
+    let mut buf = Vec::new();
+    loop {
+        let new_byte = rfd_recv.read_u8().await.unwrap();
+
+        buf.push(new_byte);
+
+        if buf.len() > 3 || buf.get(2) != Some(&b'\n') {
+            buf.clear();
+            continue;
+        }
+
+        if buf.len() == 3 && buf.get(2) == Some(&b'\n') {
+            let data = buf[0];
+            let check = buf[1];
+
+            let new_cksum = crc8(&[data]);
+
+            if check != new_cksum {
+                println!("Checksums do not match!");
+                continue;
+            }
+
+            // Do the command parsing logic here....
+        }
+    }
+}
+
+/// Function to read the Ublox ZED-F9P GPS module.
 async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
     // Set up the GPS serial port. This must utilize the proper port on the
     // raspberry pi.
@@ -114,7 +159,7 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
     }
 }
 
-/// Function to read the INA current sensor.
+/// Function to read the INA219 current sensor.
 async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) -> ! {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut ina = SyncIna219::new(i2c, ina219::address::Address::from_byte(0x40).unwrap()).unwrap();
@@ -129,6 +174,7 @@ async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) -> ! {
     }
 }
 
+/// Function to read the BMP388 pressure and temp sensor.
 async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) -> ! {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut delay = linux_embedded_hal::Delay;
