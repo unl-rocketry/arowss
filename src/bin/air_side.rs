@@ -210,3 +210,22 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) -> ! {
         });
     }
 }
+
+
+pub enum Commands {
+    ExampleCommand1,
+    ExampleCommand2,
+    ExampleCommand3,
+    ExampleCommand4,
+}
+impl Commands {
+    pub fn from_string(input: u8) -> Self {
+        match input {
+            1 => Commands::ExampleCommand1,
+            2 => Commands::ExampleCommand2,
+            3 => Commands::ExampleCommand3,
+            4 => Commands::ExampleCommand4,
+            _ => panic!(),
+        }
+    }
+}
