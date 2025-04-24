@@ -1,4 +1,4 @@
-/// Calculate the crc for the packet
+/// Calculate the CRC for some arbitrary data.
 #[must_use]
 pub fn crc8(arr: &[u8]) -> u8 {
     let mut crc = 0x00;

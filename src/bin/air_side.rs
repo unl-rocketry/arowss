@@ -23,6 +23,9 @@ async fn main() {
 
 async fn sending_loop() {
     let mut rfd_send = tokio_serial::new("/dev/ttyUSB0", 57600)
+        .parity(tokio_serial::Parity::None)
+        .stop_bits(tokio_serial::StopBits::One)
+        .data_bits(tokio_serial::DataBits::Eight)
         .timeout(Duration::from_millis(50))
         .open_native_async()
         .unwrap();
@@ -84,6 +87,9 @@ async fn sending_loop() {
 
 async fn command_loop() {
     let mut rfd_recv = tokio_serial::new("/dev/ttyUSB0", 57600)
+        .parity(tokio_serial::Parity::None)
+        .stop_bits(tokio_serial::StopBits::One)
+        .data_bits(tokio_serial::DataBits::Eight)
         .timeout(Duration::from_millis(50))
         .open_native_async()
         .unwrap();
@@ -96,12 +102,14 @@ async fn command_loop() {
 
         buf.push(new_byte);
 
-        if buf.len() > 3 || buf.get(2) != Some(&b'\n') {
+        if buf.len() < 3 {
+            continue;
+        } else if buf.len() >= 3 && buf.last() != Some(&b'\n') {
             buf.clear();
             continue;
         }
 
-        if buf.len() == 3 && buf.get(2) == Some(&b'\n') {
+        if buf.len() == 3 && buf.last() == Some(&b'\n') {
             let data = buf[0];
             let check = buf[1];
 
