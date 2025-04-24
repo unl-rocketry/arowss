@@ -221,19 +221,3 @@ impl Commands {
         }
     }
 }
-pub async fn parse_command(commands: &str) -> Result<String, String> {
-    match commands {
-        Commands::ExampleCommand1 => {
-            Ok("".to_string())
-        }
-        Commands::ExampleCommand2 => {
-            Ok("".to_string())
-        }
-        Commands::ExampleCommand3 => {
-            Ok("".to_string())
-        }
-        Commands::ExampleCommand4 => {
-            Ok("".to_string())
-        }
-    }
-}
