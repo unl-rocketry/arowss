@@ -1,4 +1,4 @@
-use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
+use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket, utils::crc8};
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
@@ -6,7 +6,10 @@ use nmea::{Nmea, SentenceType};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{
-    io::{AsyncReadExt as _, AsyncWriteExt as _}, join, sync::Mutex, time::{sleep, sleep_until, Instant}
+    io::{AsyncReadExt as _, AsyncWriteExt as _},
+    join,
+    sync::Mutex,
+    time::{Instant, sleep, sleep_until},
 };
 use tokio_serial::SerialPortBuilderExt;
 
@@ -74,7 +77,10 @@ async fn sending_loop() {
         let packet_crc = packet.crc();
 
         // Write the data out
-        rfd_send.write_all(packet_crc.to_string().as_bytes()).await.unwrap();
+        rfd_send
+            .write_all(packet_crc.to_string().as_bytes())
+            .await
+            .unwrap();
         rfd_send.write_u8(b' ').await.unwrap();
         let json_vec = serde_json::to_vec(&packet).unwrap();
         rfd_send.write_all(&json_vec).await.unwrap();
@@ -148,15 +154,19 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
 
         let new_string = String::from_utf8_lossy(&buffer[..byte_count]);
 
-        for line in new_string.lines()
+        for line in new_string
+            .lines()
             .filter(|l| !l.is_empty())
             .filter(|l| l.starts_with("$"))
         {
             let _ = nmea_parser.parse_for_fix(line);
         }
 
-        if nmea_parser.latitude.is_none() || nmea_parser.longitude.is_none() || nmea_parser.altitude.is_none() {
-            continue
+        if nmea_parser.latitude.is_none()
+            || nmea_parser.longitude.is_none()
+            || nmea_parser.altitude.is_none()
+        {
+            continue;
         }
 
         *data.lock().await = Some(GpsInfo {
@@ -194,8 +204,9 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) -> ! {
     // Set up measurement settings
     bmp.set_oversampling(bmp388::config::OversamplingConfig {
         osr_pressure: bmp388::Oversampling::x8,
-        osr_temperature: bmp388::Oversampling::x1
-    }).unwrap();
+        osr_temperature: bmp388::Oversampling::x1,
+    })
+    .unwrap();
     bmp.set_filter(bmp388::Filter::c3).unwrap();
     bmp.set_sampling_rate(bmp388::SamplingRate::ms20).unwrap();
 
@@ -210,7 +221,6 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) -> ! {
         });
     }
 }
-
 
 pub enum Commands {
     ExampleCommand1,
