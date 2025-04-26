@@ -1,10 +1,8 @@
 pub mod runcam;
 pub mod utils;
 
-use crc::Crc;
 use serde::{Deserialize, Serialize};
-
-pub const CRC_CKSUM: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CKSUM);
+use utils::crc8;
 
 /// A packet sent from the rocket to the ground station.
 ///
@@ -25,15 +23,15 @@ pub struct TelemetryPacket {
 
 impl TelemetryPacket {
     /// Calculate CRC from json serialized packet data.
-    pub fn crc(&self) -> u32 {
+    pub fn crc(&self) -> u8 {
         let self_json = serde_json::to_vec(self).unwrap();
-        CRC_CKSUM.checksum(&self_json)
+        crc8(&self_json)
     }
 
     /// Validate the packet against its CRC.
-    pub fn validate(&self, crc: u32) -> bool {
+    pub fn validate(&self, crc: u8) -> bool {
         let self_json = serde_json::to_string(self).unwrap();
-        let new_crc = CRC_CKSUM.checksum(self_json.as_bytes());
+        let new_crc = crc8(self_json.as_bytes());
 
         // If they aren't equal, the data is invalid!
         new_crc == crc
