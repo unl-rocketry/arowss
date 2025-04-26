@@ -8,7 +8,6 @@ publish = false
 [dependencies]
 bmp388 = { git = "https://github.com/ibutra/bmp388.git" }
 chrono = { version = "0.4", features = ["serde"] }
-crc = "3.2"
 ina219 = { version = "0.2" }
 linux-embedded-hal = { version = "0.4" }
 nmea = { version = "0.7", features = ["std", "serde"] }
