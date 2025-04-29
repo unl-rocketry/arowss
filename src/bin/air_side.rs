@@ -43,7 +43,7 @@ async fn sending_loop() {
         .data_bits(tokio_serial::DataBits::Eight)
         .timeout(Duration::from_millis(50))
         .open_native_async()
-        .inspect_err(|e| error!("Could not open RFD: {e}"))
+        .inspect_err(|e| error!("Could not open RFD for sending: {e}"))
     else {
         return
     };
@@ -56,6 +56,7 @@ async fn sending_loop() {
         let gps_data = gps_data.clone();
         async move { gps_loop(gps_data).await }
     });
+    info!("Spawned GPS task");
 
     // Spawn INA task
     let ina_data = Arc::new(Mutex::new(None));
@@ -63,6 +64,7 @@ async fn sending_loop() {
         let ina_data = ina_data.clone();
         async move { ina_loop(ina_data).await }
     });
+    info!("Spawned INA task");
 
     // Spawn BMP task
     let bmp_data = Arc::new(Mutex::new(None));
@@ -70,6 +72,7 @@ async fn sending_loop() {
         let bmp_data = bmp_data.clone();
         async move { bmp_loop(bmp_data).await }
     });
+    info!("Spawned BMP task");
 
     // Main packet sending loop. A packet should be sent 4 times per second,
     // every 250ms. The packet format should allow for individual parts of
@@ -117,7 +120,7 @@ async fn command_loop() {
         .data_bits(tokio_serial::DataBits::Eight)
         .timeout(Duration::from_millis(50))
         .open_native_async()
-        .inspect_err(|e| error!("Could not open RFD: {e}"))
+        .inspect_err(|e| error!("Could not open RFD for commands: {e}"))
     else {
         return
     };
@@ -209,9 +212,12 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
 }
 
 /// Function to read the INA219 current sensor.
-async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) -> ! {
+async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-    let mut ina = SyncIna219::new(i2c, ina219::address::Address::from_byte(0x40).unwrap()).unwrap();
+    let Ok(mut ina) = SyncIna219::new(i2c, ina219::address::Address::from_byte(0x40).unwrap()) else {
+        error!("Could not initalize INA219");
+        return
+    };
 
     loop {
         sleep(Duration::from_millis(250)).await;
@@ -224,10 +230,13 @@ async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) -> ! {
 }
 
 /// Function to read the BMP388 pressure and temp sensor.
-async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) -> ! {
+async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut delay = linux_embedded_hal::Delay;
-    let mut bmp = BMP388::new_blocking(i2c, bmp388::Addr::Secondary as u8, &mut delay).unwrap();
+    let Ok(mut bmp) = BMP388::new_blocking(i2c, bmp388::Addr::Secondary as u8, &mut delay) else {
+        error!("Could not initalize BMP388");
+        return
+    };
 
     // set power control to normal
     bmp.set_power_control(PowerControl::normal()).unwrap();
