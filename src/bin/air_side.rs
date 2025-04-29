@@ -2,7 +2,10 @@ use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket, utils::crc8
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
+use tracing::{error, info, Level};
 use nmea::{Nmea, SentenceType};
+use num_derive::{FromPrimitive, ToPrimitive};
+use rppal::gpio::Gpio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{
@@ -15,9 +18,17 @@ use tokio_serial::SerialPortBuilderExt;
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::fmt()
+        .with_max_level(Level::INFO)
+        .with_thread_ids(true)
+        .with_line_number(true)
+        .init();
+
+    // Spawn and wait on the tasks until they finish, which they should never
     let send = tokio::spawn(sending_loop());
     let recv = tokio::spawn(command_loop());
 
+    info!("Waiting on tasks...");
     #[allow(unused_must_use)]
     {
         join!(send, recv);
@@ -25,13 +36,18 @@ async fn main() {
 }
 
 async fn sending_loop() {
-    let mut rfd_send = tokio_serial::new("/dev/ttyUSB0", 57600)
+    info!("Initalized telemetry sending");
+
+    let Ok(mut rfd_send) = tokio_serial::new("/dev/ttyUSB0", 57600)
         .parity(tokio_serial::Parity::None)
         .stop_bits(tokio_serial::StopBits::One)
         .data_bits(tokio_serial::DataBits::Eight)
         .timeout(Duration::from_millis(50))
         .open_native_async()
-        .unwrap();
+        .inspect_err(|e| error!("Could not open RFD: {e}"))
+    else {
+        return
+    };
 
     rfd_send.set_exclusive(false).unwrap();
 
@@ -91,16 +107,28 @@ async fn sending_loop() {
     }
 }
 
+const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
+
 async fn command_loop() {
-    let mut rfd_recv = tokio_serial::new("/dev/ttyUSB0", 57600)
+    info!("Initalized command receiving");
+
+    let Ok(mut rfd_recv) = tokio_serial::new("/dev/ttyUSB0", 57600)
         .parity(tokio_serial::Parity::None)
         .stop_bits(tokio_serial::StopBits::One)
         .data_bits(tokio_serial::DataBits::Eight)
         .timeout(Duration::from_millis(50))
         .open_native_async()
-        .unwrap();
+        .inspect_err(|e| error!("Could not open RFD: {e}"))
+    else {
+        return
+    };
 
     rfd_recv.set_exclusive(false).unwrap();
+
+    let gpio = Gpio::new().unwrap();
+    let relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
+        .unwrap()
+        .into_output_low();
 
     let mut buf = Vec::new();
     loop {
@@ -122,7 +150,11 @@ async fn command_loop() {
             let new_cksum = crc8(&[data]);
 
             if check != new_cksum {
-                println!("Checksums do not match!");
+                error!(
+                    "Checksums do not match ({} != {}), discarding packet",
+                    check,
+                    new_cksum
+                );
                 continue;
             }
 
@@ -222,20 +254,15 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) -> ! {
     }
 }
 
+/// Commands which the air side code must respond to from the ground.
+#[derive(FromPrimitive, ToPrimitive)]
+#[repr(u8)]
 pub enum Commands {
-    ExampleCommand1,
-    ExampleCommand2,
+    /// Enable the High Power components via the relay
+    EnableHighPower,
+    /// Disable the High Power components via the relay
+    DisableHighPower,
+
     ExampleCommand3,
     ExampleCommand4,
-}
-impl Commands {
-    pub fn from_string(input: u8) -> Self {
-        match input {
-            1 => Commands::ExampleCommand1,
-            2 => Commands::ExampleCommand2,
-            3 => Commands::ExampleCommand3,
-            4 => Commands::ExampleCommand4,
-            _ => panic!(),
-        }
-    }
 }
