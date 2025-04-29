@@ -21,7 +21,6 @@ async fn main() {
     tracing_subscriber::fmt::fmt()
         .with_max_level(Level::INFO)
         .with_thread_ids(true)
-        .with_line_number(true)
         .init();
 
     // Spawn and wait on the tasks until they finish, which they should never
