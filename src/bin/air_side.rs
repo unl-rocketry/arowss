@@ -2,7 +2,7 @@ use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket, utils::crc8
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
-use tracing::{error, info, Level};
+use tracing::{error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use num_derive::{FromPrimitive, ToPrimitive};
 use rppal::gpio::Gpio;
@@ -20,7 +20,7 @@ use tokio_serial::SerialPortBuilderExt;
 async fn main() {
     tracing_subscriber::fmt::fmt()
         .with_max_level(Level::INFO)
-        .with_thread_ids(true)
+        .with_file(false)
         .init();
 
     // Spawn and wait on the tasks until they finish, which they should never
@@ -34,6 +34,7 @@ async fn main() {
     }
 }
 
+#[instrument(skip_all)]
 async fn sending_loop() {
     info!("Initalized telemetry sending");
 
@@ -104,6 +105,10 @@ async fn sending_loop() {
         rfd_send.write_all(&json_vec).await.unwrap();
         rfd_send.write_u8(b'\n').await.unwrap();
 
+        info!("Sent {} bytes, checksum 0x{:0X}", json_vec.len(), packet_crc);
+
+        rfd_send.flush().await.unwrap();
+
         // If there is any time left over, sleep
         sleep_until(timeout).await;
     }
@@ -111,6 +116,7 @@ async fn sending_loop() {
 
 const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
 
+#[instrument(skip_all)]
 async fn command_loop() {
     info!("Initalized command receiving");
 
@@ -166,7 +172,8 @@ async fn command_loop() {
 }
 
 /// Function to read the Ublox ZED-F9P GPS module.
-async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
+#[instrument(skip_all)]
+async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) {
     // Set up the GPS serial port. This must utilize the proper port on the
     // raspberry pi.
     let mut gps_port = tokio_serial::new("/dev/ttyACM0", 115200)
@@ -212,6 +219,7 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) -> ! {
 }
 
 /// Function to read the INA219 current sensor.
+#[instrument(skip_all)]
 async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let Ok(mut ina) = SyncIna219::new(i2c, ina219::address::Address::from_byte(0x40).unwrap()) else {
@@ -230,6 +238,7 @@ async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) {
 }
 
 /// Function to read the BMP388 pressure and temp sensor.
+#[instrument(skip_all)]
 async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut delay = linux_embedded_hal::Delay;
@@ -267,9 +276,9 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) {
 #[repr(u8)]
 pub enum Commands {
     /// Enable the High Power components via the relay
-    EnableHighPower,
+    EnableHighPower = 2,
     /// Disable the High Power components via the relay
-    DisableHighPower,
+    DisableHighPower = 3,
 
     ExampleCommand3,
     ExampleCommand4,
