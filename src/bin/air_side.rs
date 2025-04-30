@@ -134,7 +134,7 @@ async fn command_loop() {
     rfd_recv.set_exclusive(false).unwrap();
 
     let gpio = Gpio::new().unwrap();
-    let relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
+    let _relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
         .unwrap()
         .into_output_low();
 
