@@ -16,6 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install udev-dev
+      run: sudo apt-get install libudev-dev
     - name: Build
       run: cargo build --verbose --target x86_64-unknown-linux-gnu
     - name: Run tests
