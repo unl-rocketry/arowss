@@ -9,12 +9,12 @@ use rppal::gpio::Gpio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{
-    io::{AsyncReadExt as _, AsyncWriteExt as _},
+    io::AsyncReadExt as _,
     join,
     sync::Mutex,
     time::{Instant, sleep, sleep_until},
 };
-use tokio_serial::SerialPortBuilderExt;
+use tokio_serial::{SerialPort, SerialPortBuilderExt};
 
 #[tokio::main]
 async fn main() {
@@ -23,9 +23,20 @@ async fn main() {
         .with_file(false)
         .init();
 
+    let rfd_port = tokio_serial::new("/dev/ttyUSB0", 57600)
+        .parity(tokio_serial::Parity::None)
+        .stop_bits(tokio_serial::StopBits::One)
+        .data_bits(tokio_serial::DataBits::Eight)
+        .timeout(Duration::from_millis(50))
+        .open_native_async()
+        .unwrap();
+
+    let rfd_send = rfd_port.try_clone().unwrap();
+    let rfd_recv = rfd_port.try_clone().unwrap();
+
     // Spawn and wait on the tasks until they finish, which they should never
-    let send = tokio::spawn(sending_loop());
-    let recv = tokio::spawn(command_loop());
+    let send = tokio::spawn(sending_loop(rfd_send));
+    let recv = tokio::spawn(command_loop(rfd_recv));
 
     info!("Waiting on tasks...");
     #[allow(unused_must_use)]
@@ -35,21 +46,8 @@ async fn main() {
 }
 
 #[instrument(skip_all)]
-async fn sending_loop() {
+async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     info!("Initalized telemetry sending");
-
-    let Ok(mut rfd_send) = tokio_serial::new("/dev/ttyUSB0", 57600)
-        .parity(tokio_serial::Parity::None)
-        .stop_bits(tokio_serial::StopBits::One)
-        .data_bits(tokio_serial::DataBits::Eight)
-        .timeout(Duration::from_millis(50))
-        .open_native_async()
-        .inspect_err(|e| error!("Could not open RFD for sending: {e}"))
-    else {
-        return
-    };
-
-    rfd_send.set_exclusive(false).unwrap();
 
     // Spawn GPS task
     let gps_data = Arc::new(Mutex::new(None));
@@ -98,16 +96,15 @@ async fn sending_loop() {
         // Write the data out
         rfd_send
             .write_all(packet_crc.to_string().as_bytes())
-            .await
             .unwrap();
-        rfd_send.write_u8(b' ').await.unwrap();
+        rfd_send.write_all(b" ").unwrap();
         let json_vec = serde_json::to_vec(&packet).unwrap();
-        rfd_send.write_all(&json_vec).await.unwrap();
-        rfd_send.write_u8(b'\n').await.unwrap();
+        rfd_send.write_all(&json_vec).unwrap();
+        rfd_send.write_all(b"\n").unwrap();
 
         info!("Sent {} bytes, checksum 0x{:0X}", json_vec.len(), packet_crc);
 
-        rfd_send.flush().await.unwrap();
+        rfd_send.flush().unwrap();
 
         // If there is any time left over, sleep
         sleep_until(timeout).await;
@@ -117,21 +114,8 @@ async fn sending_loop() {
 const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
 
 #[instrument(skip_all)]
-async fn command_loop() {
+async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
     info!("Initalized command receiving");
-
-    let Ok(mut rfd_recv) = tokio_serial::new("/dev/ttyUSB0", 57600)
-        .parity(tokio_serial::Parity::None)
-        .stop_bits(tokio_serial::StopBits::One)
-        .data_bits(tokio_serial::DataBits::Eight)
-        .timeout(Duration::from_millis(50))
-        .open_native_async()
-        .inspect_err(|e| error!("Could not open RFD for commands: {e}"))
-    else {
-        return
-    };
-
-    rfd_recv.set_exclusive(false).unwrap();
 
     let gpio = Gpio::new().unwrap();
     let _relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
@@ -140,9 +124,10 @@ async fn command_loop() {
 
     let mut buf = Vec::new();
     loop {
-        let new_byte = rfd_recv.read_u8().await.unwrap();
+        let mut byte_buf = [0];
+        rfd_recv.read_exact(&mut byte_buf).unwrap();
 
-        buf.push(new_byte);
+        buf.push(byte_buf[0]);
 
         if buf.len() < 3 {
             continue;
