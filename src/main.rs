@@ -132,9 +132,13 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
 
         buf.push(byte_buf[0]);
 
-        if buf.len() < 3 {
+        if buf.len() > 3 || (buf.last() != Some(&b' ') && buf.len() == 3) {
+            warn!("Buffer invalid: {:?}", buf);
+            buf.clear();
             continue;
-        } else if buf.len() >= 3 && buf.last() != Some(&b' ') {
+        }
+
+        if buf.get(0) == Some(&b' ') || buf.get(1) == Some(&b' ') {
             warn!("Buffer invalid: {:?}", buf);
             buf.clear();
             continue;
