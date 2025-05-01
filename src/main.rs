@@ -2,19 +2,18 @@ use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket, utils::crc8
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
-use tracing::{error, info, instrument, Level};
+use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use num_derive::{FromPrimitive, ToPrimitive};
 use rppal::gpio::Gpio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{
-    io::AsyncReadExt as _,
     join,
     sync::Mutex,
     time::{Instant, sleep, sleep_until},
 };
-use tokio_serial::{SerialPort, SerialPortBuilderExt};
+use serialport::SerialPort;
 
 #[tokio::main]
 async fn main() {
@@ -23,12 +22,12 @@ async fn main() {
         .with_file(false)
         .init();
 
-    let rfd_port = tokio_serial::new("/dev/ttyUSB0", 57600)
-        .parity(tokio_serial::Parity::None)
-        .stop_bits(tokio_serial::StopBits::One)
-        .data_bits(tokio_serial::DataBits::Eight)
+    let rfd_port = serialport::new("/dev/ttyUSB0", 57600)
+        .parity(serialport::Parity::None)
+        .stop_bits(serialport::StopBits::One)
+        .data_bits(serialport::DataBits::Eight)
         .timeout(Duration::from_millis(50))
-        .open_native_async()
+        .open()
         .unwrap();
 
     let rfd_send = rfd_port.try_clone().unwrap();
@@ -102,7 +101,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
         rfd_send.write_all(&json_vec).unwrap();
         rfd_send.write_all(b"\n").unwrap();
 
-        info!("Sent {} bytes, checksum 0x{:0X}", json_vec.len(), packet_crc);
+        debug!("Sent {} bytes, checksum 0x{:0X}", json_vec.len(), packet_crc);
 
         rfd_send.flush().unwrap();
 
@@ -125,25 +124,30 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
     let mut buf = Vec::new();
     loop {
         let mut byte_buf = [0];
-        rfd_recv.read_exact(&mut byte_buf).unwrap();
+        if rfd_recv.read_exact(&mut byte_buf).is_err() {
+            continue;
+        }
 
         buf.push(byte_buf[0]);
 
         if buf.len() < 3 {
             continue;
-        } else if buf.len() >= 3 && buf.last() != Some(&b'\n') {
+        } else if buf.len() >= 3 && buf.last() != Some(&b' ') {
+            warn!("Buffer invalid: {:?}", buf);
             buf.clear();
             continue;
         }
 
-        if buf.len() == 3 && buf.last() == Some(&b'\n') {
+        if buf.len() == 3 && buf.last() == Some(&b' ') {
+            info!("Got command {:?}", buf);
+
             let data = buf[0];
             let check = buf[1];
 
             let new_cksum = crc8(&[data]);
 
             if check != new_cksum {
-                error!(
+                warn!(
                     "Checksums do not match ({} != {}), discarding packet",
                     check,
                     new_cksum
@@ -152,6 +156,8 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
             }
 
             // Do the command parsing logic here....
+
+            buf.clear();
         }
     }
 }
@@ -161,9 +167,9 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
 async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) {
     // Set up the GPS serial port. This must utilize the proper port on the
     // raspberry pi.
-    let mut gps_port = tokio_serial::new("/dev/ttyACM0", 115200)
+    let mut gps_port = serialport::new("/dev/ttyACM0", 115200)
         .timeout(Duration::from_millis(50))
-        .open_native_async()
+        .open()
         .unwrap();
 
     // Set up and configure the NMEA parser.
@@ -172,7 +178,7 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) {
     let mut buffer = [0u8; 4096];
 
     loop {
-        let byte_count = gps_port.read(&mut buffer).await.unwrap();
+        let byte_count = gps_port.read(&mut buffer).unwrap();
 
         if byte_count == 0 {
             continue;

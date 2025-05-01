@@ -15,8 +15,8 @@ rppal = "0.22.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.44", features = ["full"] }
-tokio-serial = "5.4"
 num-traits = "0.2"
 num-derive = "0.4"
 tracing-subscriber = "0.3.19"
 tracing = "0.1.41"
+serialport = "4.7.1"
