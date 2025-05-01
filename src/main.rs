@@ -7,7 +7,6 @@ use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
-use num_derive::{FromPrimitive, ToPrimitive};
 use rppal::gpio::Gpio;
 use std::sync::Arc;
 use std::time::Duration;
