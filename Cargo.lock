@@ -47,6 +47,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serialport",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",

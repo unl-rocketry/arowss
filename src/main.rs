@@ -1,3 +1,6 @@
+mod commands;
+use commands::parse_command;
+
 use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket, utils::crc8};
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
@@ -117,7 +120,7 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
     info!("Initalized command receiving");
 
     let gpio = Gpio::new().unwrap();
-    let _relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
+    let mut relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
         .unwrap()
         .into_output_low();
 
@@ -155,7 +158,10 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
                 continue;
             }
 
-            // Do the command parsing logic here....
+            match parse_command(data, &mut relay_pin).await {
+                Ok(s) => println!("{}", s),
+                Err(e) => println!("ERR: {:?}, {}", e, e),
+            }
 
             buf.clear();
         }
@@ -260,17 +266,4 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) {
             temperature: sensor_data.temperature,
         });
     }
-}
-
-/// Commands which the air side code must respond to from the ground.
-#[derive(FromPrimitive, ToPrimitive)]
-#[repr(u8)]
-pub enum Commands {
-    /// Enable the High Power components via the relay
-    EnableHighPower = 2,
-    /// Disable the High Power components via the relay
-    DisableHighPower = 3,
-
-    ExampleCommand3,
-    ExampleCommand4,
 }
