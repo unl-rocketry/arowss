@@ -182,39 +182,45 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) {
         .unwrap();
 
     // Set up and configure the NMEA parser.
-    let mut nmea_parser = Nmea::create_for_navigation(&[SentenceType::GGA]).unwrap();
+    let mut nmea_parser = Nmea::create_for_navigation(&[
+        SentenceType::GGA, SentenceType::GLL, SentenceType::GNS,
+    ]).unwrap();
 
-    let mut buffer = [0u8; 4096];
+    let mut buffer = Vec::new();
+    let mut byte_buf = [0u8; 1];
 
     loop {
-        let byte_count = gps_port.read(&mut buffer).unwrap();
+        gps_port.read_exact(&mut byte_buf).unwrap();
 
-        if byte_count == 0 {
+        // NMEA messages must end with '\r\n'
+        if byte_buf[0] != b'\n' {
+            buffer.push(byte_buf[0]);
             continue;
         }
 
-        let new_string = String::from_utf8_lossy(&buffer[..byte_count]);
-
-        for line in new_string
-            .lines()
-            .filter(|l| !l.is_empty())
-            .filter(|l| l.starts_with("$"))
-        {
-            let _ = nmea_parser.parse_for_fix(line);
-        }
-
-        if nmea_parser.latitude.is_none()
-            || nmea_parser.longitude.is_none()
-            || nmea_parser.altitude.is_none()
-        {
+        // NMEA messages must start with '$'
+        if buffer[0] != b'$' {
+            buffer.clear();
             continue;
         }
 
-        *data.lock().await = Some(GpsInfo {
-            latitude: nmea_parser.latitude.unwrap(),
-            longitude: nmea_parser.longitude.unwrap(),
-            altitude: nmea_parser.altitude.unwrap(),
-        });
+        let new_string = String::from_utf8_lossy(&buffer);
+        let new_string = new_string.trim();
+
+        let _ = nmea_parser.parse_for_fix(new_string);
+
+        if let Some(lat) = nmea_parser.latitude
+            && let Some(lon) = nmea_parser.longitude
+            && let Some(alt) = nmea_parser.altitude
+        {
+            *data.lock().await = Some(GpsInfo {
+                latitude: lat,
+                longitude: lon,
+                altitude: alt,
+            });
+        }
+
+        buffer.clear();
     }
 }
 
