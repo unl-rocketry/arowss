@@ -8,14 +8,22 @@ use linux_embedded_hal::I2cdev;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::{
-    join,
-    sync::Mutex,
-    time::{Instant, sleep, sleep_until},
+    join, sync::watch,
+    time::{self, sleep},
 };
 use serialport::SerialPort;
+
+const RFD_PATH: &str = "/dev/ttyUSB0";
+const RFD_BAUD: u32 = 57600;
+/// This is the maximum number of bytes that can be sent by the RFD-900 per
+/// packet without dropping behind
+const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
+
+const GPS_PATH: &str = "/dev/ttyACM0";
+const GPS_BAUD: u32 = 115200;
+
 
 #[tokio::main]
 async fn main() {
@@ -24,13 +32,17 @@ async fn main() {
         .with_file(false)
         .init();
 
-    let rfd_port = serialport::new("/dev/ttyUSB0", 57600)
+    info!("\x1b[93mAROWSS (Automatic Remote Onboard Wireless Streaming System)\x1b[0m \x1b[92minitalized.\x1b[0m");
+
+    let rfd_port = serialport::new(RFD_PATH, RFD_BAUD)
         .parity(serialport::Parity::None)
         .stop_bits(serialport::StopBits::One)
         .data_bits(serialport::DataBits::Eight)
         .timeout(Duration::from_millis(50))
         .open()
         .unwrap();
+
+    info!("RFD-900x serial port open on {RFD_PATH}");
 
     let rfd_send = rfd_port.try_clone().unwrap();
     let rfd_recv = rfd_port.try_clone().unwrap();
@@ -51,27 +63,18 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     info!("Initalized telemetry sending");
 
     // Spawn GPS task
-    let gps_data = Arc::new(Mutex::new(None));
-    tokio::spawn({
-        let gps_data = gps_data.clone();
-        async move { gps_loop(gps_data).await }
-    });
+    let (gps_send, gps_recv) = watch::channel(None);
+    tokio::spawn(gps_loop(gps_send));
     info!("Spawned GPS task");
 
     // Spawn INA task
-    let ina_data = Arc::new(Mutex::new(None));
-    tokio::spawn({
-        let ina_data = ina_data.clone();
-        async move { ina_loop(ina_data).await }
-    });
+    let (ina_send, ina_recv) = watch::channel(None);
+    tokio::spawn(ina_loop(ina_send));
     info!("Spawned INA task");
 
     // Spawn BMP task
-    let bmp_data = Arc::new(Mutex::new(None));
-    tokio::spawn({
-        let bmp_data = bmp_data.clone();
-        async move { bmp_loop(bmp_data).await }
-    });
+    let (bmp_send, bmp_recv) = watch::channel(None);
+    tokio::spawn(bmp_loop(bmp_send));
     info!("Spawned BMP task");
 
     // Main packet sending loop. A packet should be sent 4 times per second,
@@ -81,34 +84,37 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     //
     // Every packet begins with a CRC as a decimal number, followed by a space
     // followed by the JSON data, and terminated by a newline (`\n`).
-    loop {
-        let timeout = Instant::now() + Duration::from_millis(250);
+    let mut sending_interval = time::interval(Duration::from_millis(250));
+    sending_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
+    loop {
         // Construct a packet from the data
         let packet = TelemetryPacket {
-            gps: *gps_data.lock().await,
-            power_info: *ina_data.lock().await,
-            environmental_info: *bmp_data.lock().await,
+            gps: *gps_recv.borrow(),
+            power_info: *ina_recv.borrow(),
+            environmental_info: *bmp_recv.borrow(),
         };
 
         // Calculate the CRC of the packet based on its data.
-        let packet_crc = packet.crc();
+        let (packet_bytes, packet_crc) = packet.vec_crc();
+
+        if packet_bytes.len() > MAX_PACKET_BYTES {
+            warn!("Packet size of {} bytes exceeds max of {MAX_PACKET_BYTES}", packet_bytes.len());
+        }
 
         // Write the data out
         rfd_send
             .write_all(packet_crc.to_string().as_bytes())
             .unwrap();
         rfd_send.write_all(b" ").unwrap();
-        let json_vec = serde_json::to_vec(&packet).unwrap();
-        rfd_send.write_all(&json_vec).unwrap();
+        rfd_send.write_all(&packet_bytes).unwrap();
         rfd_send.write_all(b"\n").unwrap();
 
-        debug!("Sent {} bytes, checksum 0x{:0X}", json_vec.len(), packet_crc);
+        debug!("Sent {} bytes, checksum {}", packet_bytes.len(), packet_crc);
 
         rfd_send.flush().unwrap();
 
-        // If there is any time left over, sleep
-        sleep_until(timeout).await;
+        sending_interval.tick().await;
     }
 }
 
@@ -118,11 +124,18 @@ const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
 async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
     info!("Initalized command receiving");
 
-    let gpio = Gpio::new().unwrap();
+    let gpio = Gpio::new().expect("Unable to initalize GPIO pins");
     let mut relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
         .unwrap()
         .into_output_low();
 
+    // Each buffer must consist of 3 bytes:
+    //  1. Command
+    //  2. Checksum
+    //  3. Space b' '
+    //
+    //  If the buffer violates this at any time, it must be discarded as
+    //  invalid.
     let mut buf = Vec::new();
     loop {
         let mut byte_buf = [0];
@@ -162,8 +175,8 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
             }
 
             match parse_command(data, &mut relay_pin).await {
-                Ok(s) => println!("{s}"),
-                Err(e) => println!("ERR: {e:?}, {e}"),
+                Ok(_) => (),
+                Err(e) => error!("ERR: {e:?}, {e}"),
             }
 
             buf.clear();
@@ -173,10 +186,10 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
 
 /// Function to read the Ublox ZED-F9P GPS module.
 #[instrument(skip_all)]
-async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) {
+async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
     // Set up the GPS serial port. This must utilize the proper port on the
     // raspberry pi.
-    let mut gps_port = serialport::new("/dev/ttyACM0", 115200)
+    let mut gps_port = serialport::new(GPS_PATH, GPS_BAUD)
         .timeout(Duration::from_millis(50))
         .open()
         .unwrap();
@@ -204,29 +217,32 @@ async fn gps_loop(data: Arc<Mutex<Option<GpsInfo>>>) {
             continue;
         }
 
-        let new_string = String::from_utf8_lossy(&buffer);
-        let new_string = new_string.trim();
+        // Create a String from the buffer and clear the buffer
+        let new_string = String::from_utf8_lossy(&buffer).into_owned();
+        let new_string = new_string.trim_end();
+        buffer.clear();
 
-        let _ = nmea_parser.parse_for_fix(new_string);
+        match nmea_parser.parse_for_fix(new_string) {
+            Ok(_) => (),
+            Err(e) => warn!("{e:?}"),
+        }
 
         if let Some(lat) = nmea_parser.latitude
             && let Some(lon) = nmea_parser.longitude
             && let Some(alt) = nmea_parser.altitude
         {
-            *data.lock().await = Some(GpsInfo {
+            let _ = data.send(Some(GpsInfo {
                 latitude: lat,
                 longitude: lon,
                 altitude: alt,
-            });
+            }));
         }
-
-        buffer.clear();
     }
 }
 
 /// Function to read the INA219 current sensor.
 #[instrument(skip_all)]
-async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) {
+async fn ina_loop(data: watch::Sender<Option<PowerInfo>>) {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let Ok(mut ina) = SyncIna219::new(i2c, ina219::address::Address::from_byte(0x40).unwrap()) else {
         error!("Could not initalize INA219");
@@ -236,16 +252,16 @@ async fn ina_loop(data: Arc<Mutex<Option<PowerInfo>>>) {
     loop {
         sleep(Duration::from_millis(250)).await;
 
-        *data.lock().await = Some(PowerInfo {
+        let _ = data.send(Some(PowerInfo {
             voltage: ina.bus_voltage().unwrap().voltage_mv(),
             current: ina.current_raw().unwrap().0,
-        });
+        }));
     }
 }
 
 /// Function to read the BMP388 pressure and temp sensor.
 #[instrument(skip_all)]
-async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) {
+async fn bmp_loop(data: watch::Sender<Option<EnvironmentalInfo>>) {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut delay = linux_embedded_hal::Delay;
     let Ok(mut bmp) = BMP388::new_blocking(i2c, bmp388::Addr::Secondary as u8, &mut delay) else {
@@ -270,9 +286,9 @@ async fn bmp_loop(data: Arc<Mutex<Option<EnvironmentalInfo>>>) {
 
         let sensor_data = bmp.sensor_values().unwrap();
 
-        *data.lock().await = Some(EnvironmentalInfo {
+        let _ = data.send(Some(EnvironmentalInfo {
             pressure: sensor_data.pressure,
             temperature: sensor_data.temperature,
-        });
+        }));
     }
 }

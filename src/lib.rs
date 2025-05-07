@@ -22,6 +22,13 @@ pub struct TelemetryPacket {
 }
 
 impl TelemetryPacket {
+    pub fn vec_crc(&self) -> (Vec<u8>, u8) {
+        let self_json = serde_json::to_vec(self).unwrap();
+        let crc = crc8(&self_json);
+
+        (self_json, crc)
+    }
+
     /// Calculate CRC from json serialized packet data.
     pub fn crc(&self) -> u8 {
         let self_json = serde_json::to_vec(self).unwrap();

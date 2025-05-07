@@ -14,17 +14,15 @@ pub enum Commands {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseErr {
-    #[error("Command not in valid range")]
-    OutOfRange,
+    #[error("Command is not valid")]
+    Invalid,
 }
 
-
-
-pub async fn parse_command(data: u8, relay_pin: &mut OutputPin) -> Result<String, ParseErr> {
+pub async fn parse_command(data: u8, relay_pin: &mut OutputPin) -> Result<(), ParseErr> {
     let Some(command) = Commands::from_u8(data) else {
-        return Err(ParseErr::OutOfRange)
+        return Err(ParseErr::Invalid)
     };
-    
+
     match command {
         Commands::EnableHighPower => {
             relay_pin.set_high();
@@ -33,5 +31,6 @@ pub async fn parse_command(data: u8, relay_pin: &mut OutputPin) -> Result<String
             relay_pin.set_low();
         }
     }
-    Ok(" ".to_string())
+
+    Ok(())
 }
