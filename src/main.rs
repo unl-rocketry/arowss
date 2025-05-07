@@ -138,7 +138,7 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
             continue;
         }
 
-        if buf.get(0) == Some(&b' ') || buf.get(1) == Some(&b' ') {
+        if buf.first() == Some(&b' ') || buf.get(1) == Some(&b' ') {
             warn!("Buffer invalid: {:?}", buf);
             buf.clear();
             continue;
@@ -162,8 +162,8 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
             }
 
             match parse_command(data, &mut relay_pin).await {
-                Ok(s) => println!("{}", s),
-                Err(e) => println!("ERR: {:?}, {}", e, e),
+                Ok(s) => println!("{s}"),
+                Err(e) => println!("ERR: {e:?}, {e}"),
             }
 
             buf.clear();
