@@ -15,14 +15,16 @@ use tokio::{
 };
 use serialport::SerialPort;
 
-const RFD_PATH: &str = "/dev/ttyUSB0";
+// UART 0 on the pi
+const RFD_PATH: &str = "/dev/ttyAMA0";
 const RFD_BAUD: u32 = 57600;
 /// This is the maximum number of bytes that can be sent by the RFD-900 per
 /// packet without dropping behind
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
-const GPS_PATH: &str = "/dev/ttyACM0";
-const GPS_BAUD: u32 = 115200;
+// UART 5 on the pi
+const GPS_PATH: &str = "/dev/ttyAMA5";
+const GPS_BAUD: u32 = 38400;
 
 
 #[tokio::main]
