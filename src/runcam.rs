@@ -1,19 +1,19 @@
 use std::{error::Error, io, time::Duration};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_serial::SerialPortBuilderExt;
+use byteorder_lite::{ReadBytesExt as _, WriteBytesExt as _, LE};
+use serialport::SerialPort;
 
 use crate::utils::crc8;
 
 pub struct RunCam {
-    port: tokio_serial::SerialStream,
+    port: Box<dyn SerialPort>,
 }
 
 impl RunCam {
     pub fn new(port: &str) -> Result<Self, Box<dyn Error>> {
         // Open port for runcam
-        let runcam_port = tokio_serial::new(port, 115_200)
+        let runcam_port = serialport::new(port, 115_200)
             .timeout(Duration::from_millis(50))
-            .open_native_async()?;
+            .open()?;
 
         Ok(Self { port: runcam_port })
     }
@@ -22,13 +22,13 @@ impl RunCam {
         let data = [0xCC, CommandIds::ReadCameraInformation as u8];
         let crc = crc8(&data);
 
-        self.port.write_all(&data).await?;
-        self.port.write_u8(crc).await?;
+        self.port.write_all(&data)?;
+        self.port.write_u8(crc)?;
 
-        let _ = self.port.read_u8().await?;
-        let protocol_version = self.port.read_u8().await?;
-        let feature = self.port.read_u16().await?;
-        let _ret_crc = self.port.read_u8().await?;
+        let _ = self.port.read_u8()?;
+        let protocol_version = self.port.read_u8()?;
+        let feature = self.port.read_u16::<LE>()?;
+        let _ret_crc = self.port.read_u8()?;
 
         Ok((protocol_version, feature))
     }
@@ -37,8 +37,8 @@ impl RunCam {
         let data = [0xCC, CommandIds::CameraControl as u8, action as u8];
         let crc = crc8(&data);
 
-        self.port.write_all(&data).await?;
-        self.port.write_u8(crc).await?;
+        self.port.write_all(&data)?;
+        self.port.write_u8(crc)?;
 
         Ok(())
     }

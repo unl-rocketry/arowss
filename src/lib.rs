@@ -1,4 +1,4 @@
-//pub mod runcam;
+pub mod runcam;
 pub mod utils;
 
 use serde::{Deserialize, Serialize};
