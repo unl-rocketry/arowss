@@ -194,6 +194,7 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
     let mut gps_port = serialport::new(GPS_PATH, GPS_BAUD)
         .timeout(Duration::from_millis(50))
         .open()
+        .unwrap();
 
     // Set up and configure the NMEA parser.
     let mut nmea_parser = Nmea::create_for_navigation(&[
