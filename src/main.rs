@@ -224,6 +224,8 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
         let new_string = new_string.trim_end();
         buffer.clear();
 
+        info!("Got NMEA: {}", new_string);
+
         match nmea_parser.parse_for_fix(new_string) {
             Ok(_) => (),
             Err(e) => warn!("{e:?}"),
