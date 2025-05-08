@@ -16,7 +16,7 @@ use tokio::{
 use serialport::SerialPort;
 
 // UART 0 on the pi
-const RFD_PATH: &str = "/dev/ttyAMA0";
+const RFD_PATH: &str = "/dev/ttyAMA2";
 const RFD_BAUD: u32 = 57600;
 /// This is the maximum number of bytes that can be sent by the RFD-900 per
 /// packet without dropping behind
@@ -120,7 +120,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     }
 }
 
-const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
+const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;    //TODO set to actual pin being used
 
 #[instrument(skip_all)]
 async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
@@ -194,7 +194,6 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
     let mut gps_port = serialport::new(GPS_PATH, GPS_BAUD)
         .timeout(Duration::from_millis(50))
         .open()
-        .unwrap();
 
     // Set up and configure the NMEA parser.
     let mut nmea_parser = Nmea::create_for_navigation(&[
@@ -205,7 +204,11 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
     let mut byte_buf = [0u8; 1];
 
     loop {
-        gps_port.read_exact(&mut byte_buf).unwrap();
+        let bytes_read = gps_port.read(&mut byte_buf).unwrap_or_default();
+
+        if bytes_read == 0 {
+            continue;
+        }
 
         // NMEA messages must end with '\r\n'
         if byte_buf[0] != b'\n' {
@@ -224,7 +227,7 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
         let new_string = new_string.trim_end();
         buffer.clear();
 
-        info!("Got NMEA: {}", new_string);
+        // info!("Got NMEA: {}", new_string);
 
         match nmea_parser.parse_for_fix(new_string) {
             Ok(_) => (),
