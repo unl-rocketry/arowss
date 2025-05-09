@@ -26,7 +26,6 @@ const GPS_PATH: &str = "/dev/ttyAMA3";
 const GPS_BAUD: u32 = 38400;
 
 const RUNCAM_PATH: &str = "/dev/ttyAMA4";
-const RUNCAM_BAUD: u32 = 115200;
 
 
 #[tokio::main]
