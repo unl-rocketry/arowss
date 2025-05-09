@@ -1,7 +1,7 @@
 mod commands;
-use commands::parse_command;
+use commands::CommandParser;
 
-use arowss::{EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket, utils::crc8};
+use arowss::{runcam::RunCam, utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
@@ -15,16 +15,18 @@ use tokio::{
 };
 use serialport::SerialPort;
 
-// UART 0 on the pi
 const RFD_PATH: &str = "/dev/ttyAMA2";
 const RFD_BAUD: u32 = 57600;
 /// This is the maximum number of bytes that can be sent by the RFD-900 per
 /// packet without dropping behind
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
-// UART 5 on the pi
-const GPS_PATH: &str = "/dev/ttyAMA5";
+
+const GPS_PATH: &str = "/dev/ttyAMA3";
 const GPS_BAUD: u32 = 38400;
+
+const RUNCAM_PATH: &str = "/dev/ttyAMA4";
+const RUNCAM_BAUD: u32 = 115200;
 
 
 #[tokio::main]
@@ -126,10 +128,20 @@ const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;    //TODO set to actual pin being used
 async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
     info!("Initalized command receiving");
 
+    // Set up relay GPIO pin
     let gpio = Gpio::new().expect("Unable to initalize GPIO pins");
-    let mut relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
+    let relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
         .unwrap()
         .into_output_low();
+
+    // Set up Runcam
+    let runcam = RunCam::new(RUNCAM_PATH).ok();
+
+    // Create command parser with devices
+    let mut command_parser = CommandParser {
+        relay_pin,
+        runcam,
+    };
 
     // Each buffer must consist of 3 bytes:
     //  1. Command
@@ -176,8 +188,8 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
                 continue;
             }
 
-            match parse_command(data, &mut relay_pin).await {
-                Ok(_) => (),
+            match command_parser.parse_command(data) {
+                Ok(()) => (),
                 Err(e) => error!("ERR: {e:?}, {e}"),
             }
 

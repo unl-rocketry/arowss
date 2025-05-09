@@ -18,7 +18,7 @@ impl RunCam {
         Ok(Self { port: runcam_port })
     }
 
-    pub async fn get_camera_information(&mut self) -> Result<(u8, u16), io::Error> {
+    pub fn get_camera_information(&mut self) -> Result<(u8, u16), io::Error> {
         let data = [0xCC, CommandIds::ReadCameraInformation as u8];
         let crc = crc8(&data);
 
@@ -33,7 +33,7 @@ impl RunCam {
         Ok((protocol_version, feature))
     }
 
-    pub async fn write_camera_control(&mut self, action: ControlActions) -> Result<(), io::Error> {
+    pub fn write_camera_control(&mut self, action: ControlActions) -> Result<(), io::Error> {
         let data = [0xCC, CommandIds::CameraControl as u8, action as u8];
         let crc = crc8(&data);
 

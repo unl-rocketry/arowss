@@ -36,6 +36,7 @@ impl TelemetryPacket {
     }
 
     /// Validate the packet against its CRC.
+    #[must_use]
     pub fn validate(&self, crc: u8) -> bool {
         let self_json = serde_json::to_string(self).unwrap();
         let new_crc = crc8(self_json.as_bytes());

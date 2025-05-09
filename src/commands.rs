@@ -1,3 +1,4 @@
+use arowss::runcam::{self, RunCam};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 use rppal::gpio::OutputPin;
@@ -10,6 +11,12 @@ pub enum Commands {
     EnableHighPower = 70,
     /// Disable the High Power components via the relay
     DisableHighPower = 80,
+
+    /// Start recording on the Runcams
+    EnableRuncams = 90,
+
+    /// Start recording on the Runcams
+    DisableRuncams = 100,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -18,19 +25,29 @@ pub enum ParseErr {
     Invalid,
 }
 
-pub async fn parse_command(data: u8, relay_pin: &mut OutputPin) -> Result<(), ParseErr> {
-    let Some(command) = Commands::from_u8(data) else {
-        return Err(ParseErr::Invalid)
-    };
+// Struct containing items which need to be modified by ground commands.
+pub struct CommandParser {
+    pub relay_pin: OutputPin,
+    pub runcam: Option<RunCam>,
+}
 
-    match command {
-        Commands::EnableHighPower => {
-            relay_pin.set_high();
+impl CommandParser {
+    pub fn parse_command(&mut self, data: u8) -> Result<(), ParseErr> {
+        let Some(command) = Commands::from_u8(data) else {
+            return Err(ParseErr::Invalid)
+        };
+
+        match command {
+            Commands::EnableHighPower => self.relay_pin.set_high(),
+            Commands::DisableHighPower => self.relay_pin.set_low(),
+            Commands::EnableRuncams => if let Some(r) = self.runcam.as_mut() {
+                let _ = r.write_camera_control(runcam::ControlActions::StartRecording);
+            },
+            Commands::DisableRuncams => if let Some(r) = self.runcam.as_mut() {
+                let _ = r.write_camera_control(runcam::ControlActions::StopRecording);
+            },
         }
-        Commands::DisableHighPower => {
-            relay_pin.set_low();
-        }
+
+        Ok(())
     }
-
-    Ok(())
 }
