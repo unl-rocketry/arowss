@@ -21,5 +21,5 @@ All pins are listed as GPIO pins, not board pins.
 
 | Component | Pin(s) |
 |-----------|--------|
-| I²C       | 2, 3   |
+| I²C       | 2 (SDA), 3 (SCL) |
 | Relay     | 21     |
