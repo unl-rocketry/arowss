@@ -22,3 +22,5 @@ tracing = "0.1"
 serialport = "4.7"
 thiserror = "2.0"
 byteorder-lite = "0.1.0"
+bon = "3.6.3"
+tokio-stream = { version = "0.1.17", features = ["sync"] }

@@ -1,16 +1,17 @@
 mod commands;
-use commands::CommandParser;
+use byteorder_lite::{ReadBytesExt, WriteBytesExt};
+use commands::{command_loop, UplinkCommand};
 
 use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
+use num_traits::FromPrimitive;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
-use rppal::gpio::Gpio;
 use std::time::Duration;
 use tokio::{
-    join, sync::watch,
+    join, sync::{mpsc, watch},
     time::{self, sleep},
 };
 use serialport::SerialPort;
@@ -50,12 +51,16 @@ async fn main() {
 
     // Spawn and wait on the tasks until they finish, which they should never
     let send = tokio::spawn(sending_loop(rfd_send));
-    let recv = tokio::spawn(command_loop(rfd_recv));
+
+    // Set up command channel and run task for command actions
+    let (command_tx, command_rx) = tokio::sync::mpsc::channel(100);
+    let command_loop = tokio::spawn(command_loop(command_rx));
+    let command_receiver = tokio::spawn(command_receiver(rfd_recv, command_tx));
 
     info!("Waiting on tasks...");
     #[allow(unused_must_use)]
     {
-        join!(send, recv);
+        join!(send, command_receiver, command_loop);
     }
 }
 
@@ -92,12 +97,12 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     // followed by the JSON data, and terminated by a newline (`\n`).
     loop {
         // Construct a packet from the data
-        let packet = TelemetryPacket {
-            sequence_number,
-            gps: *gps_recv.borrow(),
-            power_info: *ina_recv.borrow(),
-            environmental_info: *bmp_recv.borrow(),
-        };
+        let packet = TelemetryPacket::builder()
+            .sequence_number(sequence_number)
+            .maybe_gps(*gps_recv.borrow())
+            .maybe_power_info(*ina_recv.borrow())
+            .maybe_environmental_info(*bmp_recv.borrow())
+            .build();
 
         // Increment the sequence number
         sequence_number = sequence_number.wrapping_add(1);
@@ -110,10 +115,10 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
         }
 
         // Write the data out
-        rfd_send.write_all(&[packet_crc]).unwrap();
-        rfd_send.write_all(b" ").unwrap();
+        rfd_send.write_u8(packet_crc).unwrap();
+        rfd_send.write_u8(b' ').unwrap();
         rfd_send.write_all(&packet_bytes).unwrap();
-        rfd_send.write_all(b"\n").unwrap();
+        rfd_send.write_u8(b'\n').unwrap();
 
         debug!("Sent {} bytes, checksum {}", packet_bytes.len(), packet_crc);
 
@@ -123,22 +128,9 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     }
 }
 
-const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;    //TODO set to actual pin being used
-
 #[instrument(skip_all)]
-async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
+async fn command_receiver(mut rfd_recv: Box<dyn SerialPort>, command_tx: mpsc::Sender<UplinkCommand>) {
     info!("Initalized command receiving");
-
-    // Set up relay GPIO pin
-    let gpio = Gpio::new().expect("Unable to initalize GPIO pins");
-    let relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
-        .unwrap()
-        .into_output_low();
-
-    // Create command parser with devices
-    let mut command_parser = CommandParser {
-        relay_pin,
-    };
 
     // Each buffer must consist of 3 bytes:
     //  1. Command
@@ -149,49 +141,51 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
     //  invalid.
     let mut buf = Vec::new();
     loop {
-        let mut byte_buf = [0];
-        if rfd_recv.read_exact(&mut byte_buf).is_err() {
+        let Ok(recv_byte) = rfd_recv.read_u8() else {
             continue;
-        }
+        };
 
-        buf.push(byte_buf[0]);
+        buf.push(recv_byte);
 
-        if buf.len() > 3 || (buf.last() != Some(&b' ') && buf.len() == 3) {
+        if buf.len() > 3 || (buf.len() == 3 && buf.last() != Some(&b' ')) {
             warn!("Buffer invalid: {:?}", buf);
             buf.clear();
             continue;
-        }
-
-        if buf.first() == Some(&b' ') || buf.get(1) == Some(&b' ') {
+        } else if buf.len() < 3 && buf.contains(&b' ') {
             warn!("Buffer invalid: {:?}", buf);
             buf.clear();
             continue;
+        } else if buf.len() != 3 {
+            // Can only parse properly if there are 3 bytes in the buffer
+            continue;
         }
 
-        if buf.len() == 3 && buf.last() == Some(&b' ') {
-            info!("Got command {:?}", buf);
+        info!("Got command buffer {:?}", buf);
 
-            let data = buf[0];
-            let check = buf[1];
+        let data = buf[0];
+        let check = buf[1];
 
-            let new_cksum = crc8(&[data]);
+        let new_cksum = crc8(&[data]);
 
-            if check != new_cksum {
-                warn!(
-                    "Checksums do not match ({} != {}), discarding packet",
-                    check,
-                    new_cksum
-                );
-                continue;
-            }
-
-            match command_parser.parse_command(data) {
-                Ok(()) => (),
-                Err(e) => error!("ERR: {e:?}, {e}"),
-            }
-
-            buf.clear();
+        if check != new_cksum {
+            warn!(
+                "Checksums do not match ({} != {}), discarding packet",
+                check,
+                new_cksum
+            );
+            continue;
         }
+
+
+        match UplinkCommand::from_u8(data) {
+            Some(c) => if let Err(e) = command_tx.send(c).await {
+                println!("Could not send command: {e}");
+            },
+            None => warn!("Got invalid command {data}"),
+        }
+
+        // Clear the buffer to get the next message
+        buf.clear();
     }
 }
 
@@ -244,16 +238,12 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
             Err(e) => warn!("{e:?}"),
         }
 
-        if let Some(lat) = nmea_parser.latitude
-            && let Some(lon) = nmea_parser.longitude
-            && let Some(alt) = nmea_parser.altitude
-        {
-            let _ = data.send(Some(GpsInfo {
-                latitude: lat,
-                longitude: lon,
-                altitude: alt,
-            }));
-        }
+        let _ = data.send(Some(GpsInfo {
+            datetime: nmea_parser.fix_timestamp().unwrap_or_default(),
+            latitude: nmea_parser.latitude(),
+            longitude: nmea_parser.longitude(),
+            altitude: nmea_parser.altitude(),
+        }));
     }
 }
 

@@ -1,16 +1,26 @@
 pub mod runcam;
 pub mod utils;
 
+use bon::Builder;
+use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
 use utils::crc8;
+
+/// The current version of the packet format.
+const PACKET_VERSION: u8 = 2;
 
 /// A packet sent from the rocket to the ground station.
 ///
 /// Contains information about position and internal payload conditions.
 /// Most fields are optional.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Builder)]
 pub struct TelemetryPacket {
+    #[builder(skip = PACKET_VERSION)]
+    pub version: u8,
+
     /// A squence number from 0-255 which allows detection of missed packets.
+    #[serde(rename = "seq")]
     pub sequence_number: u8,
 
     /// Full GPS telemetry information
@@ -72,7 +82,10 @@ pub struct EnvironmentalInfo {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GpsInfo {
-    pub latitude: f64,
-    pub longitude: f64,
-    pub altitude: f32,
+    /// DateTime of the latest fix
+    pub datetime: NaiveTime,
+
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub altitude: Option<f32>,
 }
