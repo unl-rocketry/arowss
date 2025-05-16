@@ -115,14 +115,14 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
         }
 
         // Write the data out
-        rfd_send.write_u8(packet_crc).unwrap();
-        rfd_send.write_u8(b' ').unwrap();
-        rfd_send.write_all(&packet_bytes).unwrap();
-        rfd_send.write_u8(b'\n').unwrap();
+        let _ = rfd_send.write_u8(packet_crc);
+        let _ = rfd_send.write_u8(b' ');
+        let _ = rfd_send.write_all(&packet_bytes);
+        let _ = rfd_send.write_u8(b'\n');
 
         debug!("Sent {} bytes, checksum {}", packet_bytes.len(), packet_crc);
 
-        rfd_send.flush().unwrap();
+        let _ = rfd_send.flush();
 
         sending_interval.tick().await;
     }
