@@ -1,7 +1,7 @@
 mod commands;
 use commands::CommandParser;
 
-use arowss::{runcam::RunCam, utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
+use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
@@ -24,8 +24,6 @@ const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
 const GPS_PATH: &str = "/dev/ttyAMA3";
 const GPS_BAUD: u32 = 38400;
-
-const RUNCAM_PATH: &str = "/dev/ttyAMA4";
 
 
 #[tokio::main]
@@ -80,6 +78,11 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     tokio::spawn(bmp_loop(bmp_send));
     info!("Spawned BMP task");
 
+    let mut sending_interval = time::interval(Duration::from_millis(250));
+    sending_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+
+    let mut sequence_number = 0;
+
     // Main packet sending loop. A packet should be sent 4 times per second,
     // every 250ms. The packet format should allow for individual parts of
     // the packet information to be unavailable so any single part failing
@@ -87,16 +90,17 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     //
     // Every packet begins with a CRC as a decimal number, followed by a space
     // followed by the JSON data, and terminated by a newline (`\n`).
-    let mut sending_interval = time::interval(Duration::from_millis(250));
-    sending_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-
     loop {
         // Construct a packet from the data
         let packet = TelemetryPacket {
+            sequence_number,
             gps: *gps_recv.borrow(),
             power_info: *ina_recv.borrow(),
             environmental_info: *bmp_recv.borrow(),
         };
+
+        // Increment the sequence number
+        sequence_number = sequence_number.wrapping_add(1);
 
         // Calculate the CRC of the packet based on its data.
         let (packet_bytes, packet_crc) = packet.vec_crc();
@@ -106,9 +110,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
         }
 
         // Write the data out
-        rfd_send
-            .write_all(packet_crc.to_string().as_bytes())
-            .unwrap();
+        rfd_send.write_all(&[packet_crc]).unwrap();
         rfd_send.write_all(b" ").unwrap();
         rfd_send.write_all(&packet_bytes).unwrap();
         rfd_send.write_all(b"\n").unwrap();
@@ -133,13 +135,9 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
         .unwrap()
         .into_output_low();
 
-    // Set up Runcam
-    let runcam = RunCam::new(RUNCAM_PATH).ok();
-
     // Create command parser with devices
     let mut command_parser = CommandParser {
         relay_pin,
-        runcam,
     };
 
     // Each buffer must consist of 3 bytes:
@@ -272,8 +270,8 @@ async fn ina_loop(data: watch::Sender<Option<PowerInfo>>) {
         sleep(Duration::from_millis(250)).await;
 
         let _ = data.send(Some(PowerInfo {
-            voltage: ina.bus_voltage().unwrap().voltage_mv(),
-            current: ina.current_raw().unwrap().0,
+            voltage: ina.bus_voltage().unwrap_or_default().voltage_mv(),
+            current: ina.current_raw().unwrap_or_default().0,
         }));
     }
 }

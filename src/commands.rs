@@ -1,11 +1,12 @@
-use arowss::runcam::{self, RunCam};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 use rppal::gpio::OutputPin;
+use tracing::warn;
 
 /// Commands which the air side code must respond to from the ground.
-#[derive(FromPrimitive, ToPrimitive)]
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone, Copy)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum Commands {
     /// Enable the High Power components via the relay
     EnableHighPower = 70,
@@ -14,7 +15,6 @@ pub enum Commands {
 
     /// Start recording on the Runcams
     EnableRuncams = 90,
-
     /// Start recording on the Runcams
     DisableRuncams = 100,
 }
@@ -28,7 +28,6 @@ pub enum ParseErr {
 // Struct containing items which need to be modified by ground commands.
 pub struct CommandParser {
     pub relay_pin: OutputPin,
-    pub runcam: Option<RunCam>,
 }
 
 impl CommandParser {
@@ -40,12 +39,7 @@ impl CommandParser {
         match command {
             Commands::EnableHighPower => self.relay_pin.set_high(),
             Commands::DisableHighPower => self.relay_pin.set_low(),
-            Commands::EnableRuncams => if let Some(r) = self.runcam.as_mut() {
-                let _ = r.write_camera_control(runcam::ControlActions::StartRecording);
-            },
-            Commands::DisableRuncams => if let Some(r) = self.runcam.as_mut() {
-                let _ = r.write_camera_control(runcam::ControlActions::StopRecording);
-            },
+            invalid_cmd => warn!("Command {invalid_cmd:?} not implemented"),
         }
 
         Ok(())

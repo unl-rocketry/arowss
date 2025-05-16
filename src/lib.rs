@@ -7,17 +7,21 @@ use utils::crc8;
 /// A packet sent from the rocket to the ground station.
 ///
 /// Contains information about position and internal payload conditions.
-/// Most fields are optional, as it is possible for any part of the payload
-/// to be not functioning while still grabbing some data from it.
+/// Most fields are optional.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetryPacket {
+    /// A squence number from 0-255 which allows detection of missed packets.
+    pub sequence_number: u8,
+
     /// Full GPS telemetry information
     pub gps: Option<GpsInfo>,
 
     /// Environmental information
+    #[serde(rename = "env")]
     pub environmental_info: Option<EnvironmentalInfo>,
 
     /// Battery related information
+    #[serde(rename = "pwr")]
     pub power_info: Option<PowerInfo>,
 }
 
@@ -49,16 +53,20 @@ impl TelemetryPacket {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PowerInfo {
     /// The voltage of the main battery
+    #[serde(rename = "volt")]
     pub voltage: u16,
     /// Current being drawn by all components from the main battery
+    #[serde(rename = "curr")]
     pub current: u16,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct EnvironmentalInfo {
     /// Pressure of the inside of the payload
+    #[serde(rename = "pres")]
     pub pressure: f64,
     /// Temperature of the inside of the payload
+    #[serde(rename = "temp")]
     pub temperature: f64,
 }
 
