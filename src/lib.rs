@@ -2,7 +2,6 @@ pub mod runcam;
 pub mod utils;
 
 use bon::Builder;
-use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
 use utils::crc8;
 
@@ -17,14 +16,11 @@ const PACKET_VERSION: u8 = 2;
 #[derive(Builder)]
 pub struct TelemetryPacket {
     #[builder(skip = PACKET_VERSION)]
+    #[serde(rename = "v")]
     pub version: u8,
 
-    /// A squence number from 0-255 which allows detection of missed packets.
-    #[serde(rename = "seq")]
-    pub sequence_number: u8,
-
     /// Full GPS telemetry information
-    pub gps: Option<GpsInfo>,
+    pub gps: GpsInfo,
 
     /// Environmental information
     #[serde(rename = "env")]
@@ -80,12 +76,14 @@ pub struct EnvironmentalInfo {
     pub temperature: f64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct GpsInfo {
-    /// DateTime of the latest fix
-    pub datetime: NaiveTime,
-
+    /// Number of visible satellites
+    pub sats: u8,
+    #[serde(rename = "lat")]
     pub latitude: Option<f64>,
+    #[serde(rename = "lon")]
     pub longitude: Option<f64>,
+    #[serde(rename = "alt")]
     pub altitude: Option<f32>,
 }

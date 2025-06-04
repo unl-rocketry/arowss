@@ -14,3 +14,24 @@ pub fn crc8(arr: &[u8]) -> u8 {
     }
     crc
 }
+
+/// Calculate the NMEA CRC for some arbitrary data.
+#[must_use]
+pub fn nmea_crc8(arr: &[u8]) -> u8 {
+    let mut crc = 0x00;
+
+    for element in arr {
+        crc ^= element;
+    }
+
+    crc
+}
+
+/// Create an NMEA sentence to send to a GPS to control it.
+#[must_use]
+pub fn create_nmea_command(cmd: &str) -> Vec<u8> {
+    format!(
+        "${cmd}*{:02X}\r\n",
+        nmea_crc8(cmd.as_bytes())
+    ).as_bytes().to_vec()
+}

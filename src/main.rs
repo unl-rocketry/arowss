@@ -2,17 +2,16 @@ mod commands;
 use byteorder_lite::{ReadBytesExt, WriteBytesExt};
 use commands::{command_loop, UplinkCommand};
 
-use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
+use arowss::{utils::{crc8, create_nmea_command}, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
 use num_traits::FromPrimitive;
-use tracing::{warn, debug, error, info, instrument, Level};
+use tracing::{debug, error, info, instrument, warn, Level};
 use nmea::{Nmea, SentenceType};
 use std::time::Duration;
 use tokio::{
-    join, sync::{mpsc, watch},
-    time::{self, sleep},
+    join, net::UdpSocket, sync::{mpsc, watch}, time::{self, sleep}
 };
 use serialport::SerialPort;
 
@@ -22,10 +21,10 @@ const RFD_BAUD: u32 = 57600;
 /// packet without dropping behind
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
-
 const GPS_PATH: &str = "/dev/ttyAMA3";
 const GPS_BAUD: u32 = 38400;
 
+const UDP_PORT: u16 = 3180;
 
 #[tokio::main]
 async fn main() {
@@ -68,8 +67,12 @@ async fn main() {
 async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     info!("Initalized telemetry sending");
 
+    let udp_output = UdpSocket::bind("0.0.0.0:0").await.unwrap();
+    udp_output.set_broadcast(true).unwrap();
+    udp_output.connect(format!("255.255.255.255:{UDP_PORT}")).await.unwrap();
+
     // Spawn GPS task
-    let (gps_send, gps_recv) = watch::channel(None);
+    let (gps_send, gps_recv) = watch::channel(GpsInfo::default());
     tokio::spawn(gps_loop(gps_send));
     info!("Spawned GPS task");
 
@@ -93,36 +96,42 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     // the packet information to be unavailable so any single part failing
     // cannot take down the whole system.
     //
-    // Every packet begins with a CRC as a decimal number, followed by a space
-    // followed by the JSON data, and terminated by a newline (`\n`).
+    // Every packet begins with a CRC as a byte, followed by the sequence number
+    // as a byte followed by the JSON data, and terminated by a newline (`\n`).
     loop {
         // Construct a packet from the data
         let packet = TelemetryPacket::builder()
-            .sequence_number(sequence_number)
-            .maybe_gps(*gps_recv.borrow())
+            .gps(*gps_recv.borrow())
             .maybe_power_info(*ina_recv.borrow())
             .maybe_environmental_info(*bmp_recv.borrow())
             .build();
 
-        // Increment the sequence number
-        sequence_number = sequence_number.wrapping_add(1);
-
         // Calculate the CRC of the packet based on its data.
         let (packet_bytes, packet_crc) = packet.vec_crc();
 
-        if packet_bytes.len() > MAX_PACKET_BYTES {
+        // Create the packet
+        let mut output_packet = vec![packet_crc, sequence_number];
+        output_packet.extend_from_slice(&packet_bytes);
+        output_packet.push(b'\n');
+
+        if output_packet.len() > MAX_PACKET_BYTES {
             warn!("Packet size of {} bytes exceeds max of {MAX_PACKET_BYTES}", packet_bytes.len());
         }
 
         // Write the data out
-        let _ = rfd_send.write_u8(packet_crc);
-        let _ = rfd_send.write_u8(b' ');
-        let _ = rfd_send.write_all(&packet_bytes);
-        let _ = rfd_send.write_u8(b'\n');
+        let _ = rfd_send.write_all(&output_packet);
+        let _ = udp_output.send(&output_packet).await;
 
-        debug!("Sent {} bytes, checksum {}", packet_bytes.len(), packet_crc);
+        //println!("{:02X} {:02X} {:?}", packet_crc, sequence_number, packet);
+
+        debug!(
+            "Sent {} bytes, cksum {}, sequence {sequence_number}",
+            packet_bytes.len(),
+            packet_crc,
+        );
 
         let _ = rfd_send.flush();
+        sequence_number = sequence_number.wrapping_add(1);
 
         sending_interval.tick().await;
     }
@@ -191,38 +200,50 @@ async fn command_receiver(mut rfd_recv: Box<dyn SerialPort>, command_tx: mpsc::S
 
 /// Function to read the Ublox ZED-F9P GPS module.
 #[instrument(skip_all)]
-async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
+async fn gps_loop(data: watch::Sender<GpsInfo>) {
     // Set up the GPS serial port. This must utilize the proper port on the
     // raspberry pi.
     let mut gps_port = serialport::new(GPS_PATH, GPS_BAUD)
-        .timeout(Duration::from_millis(50))
+        .timeout(Duration::from_millis(1000))
         .open()
         .unwrap();
 
+    // Jump back down to 9600 baud, and then set it to GPS_BAUD
+    gps_port.set_baud_rate(9600).unwrap();
+    gps_port.write_all(&create_nmea_command(&format!("PMTK251,{GPS_BAUD}"))).unwrap();
+    gps_port.set_baud_rate(GPS_BAUD).unwrap();
+
+    gps_port.write_all(&create_nmea_command("PMTK220,250")).unwrap();
+    gps_port.write_all(&create_nmea_command("PMTK314,1,1,1,1,1,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")).unwrap();
+
     // Set up and configure the NMEA parser.
     let mut nmea_parser = Nmea::create_for_navigation(&[
-        SentenceType::GGA, SentenceType::GLL, SentenceType::GNS,
+        SentenceType::GGA, SentenceType::GLL, SentenceType::GNS, SentenceType::VTG, SentenceType::RMC
     ]).unwrap();
 
     let mut buffer = Vec::new();
-    let mut byte_buf = [0u8; 1];
-
     loop {
-        let bytes_read = gps_port.read(&mut byte_buf).unwrap_or_default();
-
-        if bytes_read == 0 {
+        let Ok(new_byte) = gps_port.read_u8() else {
             continue;
-        }
+        };
+
+        //println!("{}", String::from_utf8_lossy(&buffer));
 
         // NMEA messages must end with '\r\n'
-        if byte_buf[0] != b'\n' {
-            buffer.push(byte_buf[0]);
+        if new_byte != b'\n' {
+            buffer.push(new_byte);
             continue;
         }
 
-        // NMEA messages must start with '$'
-        if buffer[0] != b'$' {
-            buffer.clear();
+        // NMEA messages must start with '$' and not be empty
+        if buffer.is_empty() || buffer[0] != b'$' {
+            // If the buffer contains a '$', try to re-align the data
+            if let Some(pos) = buffer.iter().position(|c| *c == b'$') {
+                buffer.drain(0..pos).count();
+            } else {
+                buffer.clear();
+            }
+
             continue;
         }
 
@@ -231,19 +252,21 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
         let new_string = new_string.trim_end();
         buffer.clear();
 
-        // info!("Got NMEA: {}", new_string);
-
-        match nmea_parser.parse_for_fix(new_string) {
-            Ok(_) => (),
-            Err(e) => warn!("{e:?}"),
+        if new_string.is_empty() {
+            continue;
         }
 
-        let _ = data.send(Some(GpsInfo {
-            datetime: nmea_parser.fix_timestamp().unwrap_or_default(),
+        //info!("Got NMEA: {:?}", new_string);
+
+        let _ = nmea_parser.parse_for_fix(new_string);
+        //println!("{:?}", nmea_parser.satellites());
+
+        let _ = data.send(GpsInfo {
+            sats: nmea_parser.satellites().len() as u8,
             latitude: nmea_parser.latitude(),
             longitude: nmea_parser.longitude(),
             altitude: nmea_parser.altitude(),
-        }));
+        });
     }
 }
 
