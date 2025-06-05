@@ -1,3 +1,5 @@
+use serde::Serializer;
+
 /// Calculate the CRC for some arbitrary data.
 #[must_use]
 pub fn crc8(arr: &[u8]) -> u8 {
@@ -34,4 +36,10 @@ pub fn create_nmea_command(cmd: &str) -> Vec<u8> {
         "${cmd}*{:02X}\r\n",
         nmea_crc8(cmd.as_bytes())
     ).as_bytes().to_vec()
+}
+
+pub fn truncate_float<S>(float: &f64, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+{
+    serializer.serialize_str(&format!("{float:.3}"))
 }

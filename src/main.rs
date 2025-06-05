@@ -1,17 +1,16 @@
 mod commands;
-use byteorder_lite::{ReadBytesExt, WriteBytesExt};
+use byteorder_lite::ReadBytesExt;
 use commands::{command_loop, UplinkCommand};
 
-use arowss::{utils::{crc8, create_nmea_command}, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
+use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
-use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
 use num_traits::FromPrimitive;
 use tracing::{debug, error, info, instrument, warn, Level};
 use nmea::{Nmea, SentenceType};
 use std::time::Duration;
 use tokio::{
-    join, net::UdpSocket, sync::{mpsc, watch}, time::{self, sleep}
+    join, sync::{mpsc, watch}, time::{self, sleep}
 };
 use serialport::SerialPort;
 
@@ -23,8 +22,6 @@ const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
 const GPS_PATH: &str = "/dev/ttyAMA3";
 const GPS_BAUD: u32 = 38400;
-
-const UDP_PORT: u16 = 3180;
 
 #[tokio::main]
 async fn main() {
@@ -67,19 +64,10 @@ async fn main() {
 async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     info!("Initalized telemetry sending");
 
-    let udp_output = UdpSocket::bind("0.0.0.0:0").await.unwrap();
-    udp_output.set_broadcast(true).unwrap();
-    udp_output.connect(format!("255.255.255.255:{UDP_PORT}")).await.unwrap();
-
     // Spawn GPS task
     let (gps_send, gps_recv) = watch::channel(GpsInfo::default());
     tokio::spawn(gps_loop(gps_send));
     info!("Spawned GPS task");
-
-    // Spawn INA task
-    let (ina_send, ina_recv) = watch::channel(None);
-    tokio::spawn(ina_loop(ina_send));
-    info!("Spawned INA task");
 
     // Spawn BMP task
     let (bmp_send, bmp_recv) = watch::channel(None);
@@ -102,7 +90,6 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
         // Construct a packet from the data
         let packet = TelemetryPacket::builder()
             .gps(*gps_recv.borrow())
-            .maybe_power_info(*ina_recv.borrow())
             .maybe_environmental_info(*bmp_recv.borrow())
             .build();
 
@@ -120,9 +107,6 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
 
         // Write the data out
         let _ = rfd_send.write_all(&output_packet);
-        let _ = udp_output.send(&output_packet).await;
-
-        //println!("{:02X} {:02X} {:?}", packet_crc, sequence_number, packet);
 
         debug!(
             "Sent {} bytes, cksum {}, sequence {sequence_number}",
@@ -208,17 +192,10 @@ async fn gps_loop(data: watch::Sender<GpsInfo>) {
         .open()
         .unwrap();
 
-    // Jump back down to 9600 baud, and then set it to GPS_BAUD
-    gps_port.set_baud_rate(9600).unwrap();
-    gps_port.write_all(&create_nmea_command(&format!("PMTK251,{GPS_BAUD}"))).unwrap();
-    gps_port.set_baud_rate(GPS_BAUD).unwrap();
-
-    gps_port.write_all(&create_nmea_command("PMTK220,250")).unwrap();
-    gps_port.write_all(&create_nmea_command("PMTK314,1,1,1,1,1,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")).unwrap();
-
     // Set up and configure the NMEA parser.
     let mut nmea_parser = Nmea::create_for_navigation(&[
-        SentenceType::GGA, SentenceType::GLL, SentenceType::GNS, SentenceType::VTG, SentenceType::RMC
+        SentenceType::GGA, SentenceType::GLL, SentenceType::GNS,
+        SentenceType::VTG, SentenceType::RMC
     ]).unwrap();
 
     let mut buffer = Vec::new();
@@ -226,8 +203,6 @@ async fn gps_loop(data: watch::Sender<GpsInfo>) {
         let Ok(new_byte) = gps_port.read_u8() else {
             continue;
         };
-
-        //println!("{}", String::from_utf8_lossy(&buffer));
 
         // NMEA messages must end with '\r\n'
         if new_byte != b'\n' {
@@ -256,10 +231,9 @@ async fn gps_loop(data: watch::Sender<GpsInfo>) {
             continue;
         }
 
-        //info!("Got NMEA: {:?}", new_string);
+        debug!("Got NMEA: {:?}", new_string);
 
         let _ = nmea_parser.parse_for_fix(new_string);
-        //println!("{:?}", nmea_parser.satellites());
 
         let _ = data.send(GpsInfo {
             sats: nmea_parser.satellites().len() as u8,
@@ -267,25 +241,6 @@ async fn gps_loop(data: watch::Sender<GpsInfo>) {
             longitude: nmea_parser.longitude(),
             altitude: nmea_parser.altitude(),
         });
-    }
-}
-
-/// Function to read the INA219 current sensor.
-#[instrument(skip_all)]
-async fn ina_loop(data: watch::Sender<Option<PowerInfo>>) {
-    let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-    let Ok(mut ina) = SyncIna219::new(i2c, ina219::address::Address::from_byte(0x40).unwrap()) else {
-        error!("Could not initalize INA219");
-        return
-    };
-
-    loop {
-        sleep(Duration::from_millis(250)).await;
-
-        let _ = data.send(Some(PowerInfo {
-            voltage: ina.bus_voltage().unwrap_or_default().voltage_mv(),
-            current: ina.current_raw().unwrap_or_default().0,
-        }));
     }
 }
 

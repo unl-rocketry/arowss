@@ -3,7 +3,7 @@ pub mod utils;
 
 use bon::Builder;
 use serde::{Deserialize, Serialize};
-use utils::crc8;
+use utils::{crc8, truncate_float};
 
 /// The current version of the packet format.
 const PACKET_VERSION: u8 = 2;
@@ -25,10 +25,6 @@ pub struct TelemetryPacket {
     /// Environmental information
     #[serde(rename = "env")]
     pub environmental_info: Option<EnvironmentalInfo>,
-
-    /// Battery related information
-    #[serde(rename = "pwr")]
-    pub power_info: Option<PowerInfo>,
 }
 
 impl TelemetryPacket {
@@ -57,22 +53,12 @@ impl TelemetryPacket {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct PowerInfo {
-    /// The voltage of the main battery
-    #[serde(rename = "volt")]
-    pub voltage: u16,
-    /// Current being drawn by all components from the main battery
-    #[serde(rename = "curr")]
-    pub current: u16,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct EnvironmentalInfo {
     /// Pressure of the inside of the payload
-    #[serde(rename = "pres")]
+    #[serde(rename = "pres", serialize_with = "truncate_float")]
     pub pressure: f64,
     /// Temperature of the inside of the payload
-    #[serde(rename = "temp")]
+    #[serde(rename = "temp", serialize_with = "truncate_float")]
     pub temperature: f64,
 }
 
