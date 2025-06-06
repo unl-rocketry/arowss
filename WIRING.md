@@ -25,4 +25,4 @@ the Raspberry Pi.
 | Component | Pin(s) |
 |-----------|--------|
 | I²C       | 2 (SDA), 3 (SCL) |
-| Relay     | 21     |
+| Relay     | 26     |
