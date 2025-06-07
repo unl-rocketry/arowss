@@ -1,6 +1,8 @@
 pub mod runcam;
 pub mod utils;
 
+use std::collections::VecDeque;
+
 use serde::{Deserialize, Serialize};
 use utils::crc8;
 
@@ -19,6 +21,9 @@ pub struct TelemetryPacket {
 
     /// Battery related information
     pub power_info: Option<PowerInfo>,
+
+    /// Arbitrary information to transfer to the ground
+    pub info: VecDeque<String>,
 }
 
 impl TelemetryPacket {

@@ -1,14 +1,14 @@
 mod commands;
 use commands::CommandParser;
 
-use arowss::{runcam::RunCam, utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
+use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
 use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
-use std::time::Duration;
+use std::{collections::VecDeque, sync::mpsc::{self, Receiver, Sender}, time::Duration};
 use tokio::{
     join, sync::watch,
     time::{self, sleep},
@@ -21,12 +21,8 @@ const RFD_BAUD: u32 = 57600;
 /// packet without dropping behind
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
-
 const GPS_PATH: &str = "/dev/ttyAMA3";
 const GPS_BAUD: u32 = 38400;
-
-const RUNCAM_PATH: &str = "/dev/ttyAMA4";
-
 
 #[tokio::main]
 async fn main() {
@@ -50,9 +46,11 @@ async fn main() {
     let rfd_send = rfd_port.try_clone().unwrap();
     let rfd_recv = rfd_port.try_clone().unwrap();
 
+    let (info_send, info_recv) = mpsc::channel();
+
     // Spawn and wait on the tasks until they finish, which they should never
-    let send = tokio::spawn(sending_loop(rfd_send));
-    let recv = tokio::spawn(command_loop(rfd_recv));
+    let send = tokio::spawn(sending_loop(rfd_send, info_recv));
+    let recv = tokio::spawn(command_loop(rfd_recv, info_send));
 
     info!("Waiting on tasks...");
     #[allow(unused_must_use)]
@@ -62,7 +60,7 @@ async fn main() {
 }
 
 #[instrument(skip_all)]
-async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
+async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<String>) {
     info!("Initalized telemetry sending");
 
     // Spawn GPS task
@@ -80,6 +78,11 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     tokio::spawn(bmp_loop(bmp_send));
     info!("Spawned BMP task");
 
+    let mut info_deque = VecDeque::new();
+
+    let mut sending_interval = time::interval(Duration::from_millis(250));
+    sending_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+
     // Main packet sending loop. A packet should be sent 4 times per second,
     // every 250ms. The packet format should allow for individual parts of
     // the packet information to be unavailable so any single part failing
@@ -87,15 +90,21 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
     //
     // Every packet begins with a CRC as a decimal number, followed by a space
     // followed by the JSON data, and terminated by a newline (`\n`).
-    let mut sending_interval = time::interval(Duration::from_millis(250));
-    sending_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-
     loop {
+        if let Ok(i) = info_recv.try_recv() {
+            info_deque.push_back(i);
+
+            if info_deque.len() >= 4 {
+                info_deque.pop_front();
+            }
+        }
+
         // Construct a packet from the data
         let packet = TelemetryPacket {
             gps: *gps_recv.borrow(),
             power_info: *ina_recv.borrow(),
             environmental_info: *bmp_recv.borrow(),
+            info: info_deque.clone(),
         };
 
         // Calculate the CRC of the packet based on its data.
@@ -124,22 +133,20 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>) {
 const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;    //TODO set to actual pin being used
 
 #[instrument(skip_all)]
-async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
+async fn command_loop(mut rfd_recv: Box<dyn SerialPort>, info_send: Sender<String>) {
     info!("Initalized command receiving");
 
     // Set up relay GPIO pin
     let gpio = Gpio::new().expect("Unable to initalize GPIO pins");
-    let relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
+    let mut relay_pin = gpio.get(HIGH_POWER_RELAY_PIN_NUM)
         .unwrap()
-        .into_output_low();
-
-    // Set up Runcam
-    let runcam = RunCam::new(RUNCAM_PATH).ok();
+        .into_output();
+    relay_pin.set_reset_on_drop(false);
 
     // Create command parser with devices
     let mut command_parser = CommandParser {
         relay_pin,
-        runcam,
+        info_sender: info_send,
     };
 
     // Each buffer must consist of 3 bytes:
@@ -187,7 +194,7 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>) {
                 continue;
             }
 
-            match command_parser.parse_command(data) {
+            match command_parser.parse_command(data).await {
                 Ok(()) => (),
                 Err(e) => error!("ERR: {e:?}, {e}"),
             }
