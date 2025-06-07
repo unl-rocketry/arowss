@@ -18,6 +18,8 @@ pub enum Commands {
     Reboot = 100,
     /// Restart the stream process
     RestartStream = 101,
+    /// Get the IP address
+    GetIpAddress = 102,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -41,11 +43,11 @@ impl CommandParser {
         match command {
             Commands::EnableHighPower => {
                 self.relay_pin.set_high();
-                self.info_sender.send("Relay enabled".to_string());
+                let _ = self.info_sender.send("Relay enabled".to_string());
             }
             Commands::DisableHighPower => {
                 self.relay_pin.set_low();
-                self.info_sender.send("Relay disabled".to_string());
+                let _ = self.info_sender.send("Relay disabled".to_string());
             }
             Commands::Reboot => {
                 if let Ok(mut reboot_file) = fs::File::create("/proc/sysrq-trigger") {
@@ -57,6 +59,15 @@ impl CommandParser {
                     .arg("restart")
                     .arg("streaming.service")
                     .spawn();
+                let _ = self.info_sender.send("Restarted streaming service".to_string());
+            }
+            Commands::GetIpAddress => {
+                if let Ok(ip) = std::process::Command::new("hostname")
+                    .arg("-i")
+                    .output()
+                {
+                    let _ = self.info_sender.send(String::from_utf8_lossy(&ip.stdout).to_string());
+                }
             }
             //_ => warn!("Invalid command"),
         }
