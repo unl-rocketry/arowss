@@ -1,9 +1,8 @@
 mod commands;
 use commands::CommandParser;
 
-use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, PowerInfo, TelemetryPacket};
+use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, TelemetryPacket};
 use bmp388::{BMP388, PowerControl};
-use ina219::SyncIna219;
 use linux_embedded_hal::I2cdev;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
@@ -68,11 +67,6 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
     tokio::spawn(gps_loop(gps_send));
     info!("Spawned GPS task");
 
-    // Spawn INA task
-    let (ina_send, ina_recv) = watch::channel(None);
-    tokio::spawn(ina_loop(ina_send));
-    info!("Spawned INA task");
-
     // Spawn BMP task
     let (bmp_send, bmp_recv) = watch::channel(None);
     tokio::spawn(bmp_loop(bmp_send));
@@ -102,7 +96,6 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         // Construct a packet from the data
         let packet = TelemetryPacket {
             gps: *gps_recv.borrow(),
-            power_info: *ina_recv.borrow(),
             environmental_info: *bmp_recv.borrow(),
             info: info_deque.clone(),
         };
@@ -263,25 +256,6 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
                 altitude: alt,
             }));
         }
-    }
-}
-
-/// Function to read the INA219 current sensor.
-#[instrument(skip_all)]
-async fn ina_loop(data: watch::Sender<Option<PowerInfo>>) {
-    let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-    let Ok(mut ina) = SyncIna219::new(i2c, ina219::address::Address::from_byte(0x40).unwrap()) else {
-        error!("Could not initalize INA219");
-        return
-    };
-
-    loop {
-        sleep(Duration::from_millis(250)).await;
-
-        let _ = data.send(Some(PowerInfo {
-            voltage: ina.bus_voltage().unwrap().voltage_mv(),
-            current: ina.current_raw().unwrap().0,
-        }));
     }
 }
 

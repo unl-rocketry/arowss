@@ -3,7 +3,7 @@ pub mod utils;
 
 use std::collections::VecDeque;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use utils::crc8;
 
 /// A packet sent from the rocket to the ground station.
@@ -18,9 +18,6 @@ pub struct TelemetryPacket {
 
     /// Environmental information
     pub environmental_info: Option<EnvironmentalInfo>,
-
-    /// Battery related information
-    pub power_info: Option<PowerInfo>,
 
     /// Arbitrary information to transfer to the ground
     pub info: VecDeque<String>,
@@ -52,18 +49,14 @@ impl TelemetryPacket {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct PowerInfo {
-    /// The voltage of the main battery
-    pub voltage: u16,
-    /// Current being drawn by all components from the main battery
-    pub current: u16,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct EnvironmentalInfo {
     /// Pressure of the inside of the payload
+    #[serde(serialize_with = "truncate_float")]
+    #[serde(rename = "pres")]
     pub pressure: f64,
     /// Temperature of the inside of the payload
+    #[serde(serialize_with = "truncate_float")]
+    #[serde(rename = "temp")]
     pub temperature: f64,
 }
 
@@ -72,4 +65,8 @@ pub struct GpsInfo {
     pub latitude: f64,
     pub longitude: f64,
     pub altitude: f32,
+}
+
+fn truncate_float<S: Serializer>(float: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&format!("{float:.2}"))
 }
