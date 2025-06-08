@@ -63,7 +63,7 @@ impl CommandParser {
             }
             Commands::GetIpAddress => {
                 if let Ok(ip) = std::process::Command::new("hostname")
-                    .arg("-i")
+                    .arg("-I")
                     .output()
                 {
                     let _ = self.info_sender.send(String::from_utf8_lossy(&ip.stdout).to_string());
