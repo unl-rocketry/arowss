@@ -210,6 +210,7 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
     // Set up and configure the NMEA parser.
     let mut nmea_parser = Nmea::create_for_navigation(&[
         SentenceType::GGA, SentenceType::GLL, SentenceType::GNS,
+        SentenceType::VTG, SentenceType::RMC
     ]).unwrap();
 
     let mut buffer = Vec::new();
@@ -243,7 +244,7 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
 
         match nmea_parser.parse_for_fix(new_string) {
             Ok(_) => (),
-            Err(e) => warn!("{e:?}"),
+            Err(_) => (),
         }
 
         if let Some(lat) = nmea_parser.latitude
@@ -254,6 +255,7 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
                 latitude: lat,
                 longitude: lon,
                 altitude: alt,
+                satellites: nmea_parser.satellites().len() as u8
             }));
         }
     }

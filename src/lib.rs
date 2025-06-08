@@ -66,6 +66,8 @@ pub struct GpsInfo {
     pub latitude: f64,
     pub longitude: f64,
     pub altitude: f32,
+    #[serde(rename = "sats")]
+    pub satellites: u8,
 }
 
 fn truncate_float<S: Serializer>(float: &f64, serializer: S) -> Result<S::Ok, S::Error> {
