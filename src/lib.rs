@@ -49,6 +49,7 @@ impl TelemetryPacket {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename = "env")]
 pub struct EnvironmentalInfo {
     /// Pressure of the inside of the payload
     #[serde(serialize_with = "truncate_float")]

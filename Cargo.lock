@@ -39,7 +39,6 @@ dependencies = [
  "bmp388",
  "byteorder-lite",
  "chrono",
- "ina219",
  "linux-embedded-hal",
  "nmea",
  "num-derive",
@@ -239,15 +238,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "361a90feb7004eca4019fb28352a9465666b24f840f5c3cddf0ff13920590b89"
 
 [[package]]
-name = "embedded-hal-async"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c4c685bbef7fe13c3c6dd4da26841ed3980ef33e841cddfa15ce8a8fb3f1884"
-dependencies = [
- "embedded-hal",
-]
-
-[[package]]
 name = "embedded-hal-nb"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -365,16 +355,6 @@ name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
-
-[[package]]
-name = "ina219"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "457a68120d2d0f0ca1b5c7f8e0ff3f77db9e34b1076a4e82f7097cbde7d2aaa4"
-dependencies = [
- "embedded-hal",
- "embedded-hal-async",
-]
 
 [[package]]
 name = "indexmap"
