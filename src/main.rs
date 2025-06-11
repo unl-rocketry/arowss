@@ -21,7 +21,7 @@ const RFD_BAUD: u32 = 57600;
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
 const GPS_PATH: &str = "/dev/ttyAMA3";
-const GPS_BAUD: u32 = 38400;
+const GPS_BAUD: u32 = 57600;
 
 #[tokio::main]
 async fn main() {
@@ -286,11 +286,11 @@ async fn bmp_loop(data: watch::Sender<Option<EnvironmentalInfo>>) {
     loop {
         sleep(Duration::from_millis(50)).await;
 
-        let sensor_data = bmp.sensor_values().unwrap();
-
-        let _ = data.send(Some(EnvironmentalInfo {
-            pressure: sensor_data.pressure,
-            temperature: sensor_data.temperature,
-        }));
+        if let Ok(sensor_data) = bmp.sensor_values() {
+            let _ = data.send(Some(EnvironmentalInfo {
+                pressure: sensor_data.pressure,
+                temperature: sensor_data.temperature,
+            }));
+        }
     }
 }
