@@ -15,7 +15,7 @@ dependencies = [
 name = "arowss"
 version = "0.1.0"
 dependencies = [
- "bmp388",
+ "bmp581",
  "byteorder-lite",
  "chrono",
  "linux-embedded-hal",
@@ -66,12 +66,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
-name = "bmp388"
+name = "bmp581"
 version = "0.1.0"
-source = "git+https://github.com/ibutra/bmp388.git#cb31307373d485cf35991f90dfe9550e0cdf9200"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2913470059a31a77b307ad757189252962f6d56843c5665b3033d2e8c5739d77"
 dependencies = [
  "embedded-hal",
- "num-traits",
 ]
 
 [[package]]

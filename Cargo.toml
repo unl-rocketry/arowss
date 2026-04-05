@@ -6,7 +6,6 @@ edition = "2024"
 publish = false
 
 [dependencies]
-bmp388 = { git = "https://github.com/ibutra/bmp388.git" }
 chrono = { version = "0.4", features = ["serde"] }
 linux-embedded-hal = { version = "0.4" }
 nmea = { version = "0.7", features = ["std", "serde"] }
@@ -21,3 +20,4 @@ tracing = "0.1"
 serialport = { version = "4.9", default-features = false }
 thiserror = "2.0"
 byteorder-lite = "0.1.0"
+bmp581 = "0.1.0"

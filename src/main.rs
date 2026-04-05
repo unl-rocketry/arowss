@@ -1,4 +1,5 @@
 mod commands;
+use bmp581::{Bmp581, I2cAddr, types::{DeepDis, Odr, Osr, PowerMode}};
 use commands::CommandParser;
 
 use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, TelemetryPacket};
@@ -261,35 +262,39 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
     }
 }
 
-/// Function to read the BMP388 pressure and temp sensor.
+/// Function to read the BMP581 pressure and temp sensor.
 #[instrument(skip_all)]
 async fn bmp_loop(data: watch::Sender<Option<EnvironmentalInfo>>) {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
     let mut delay = linux_embedded_hal::Delay;
-    let Ok(mut bmp) = BMP388::new_blocking(i2c, bmp388::Addr::Secondary as u8, &mut delay) else {
-        error!("Could not initalize BMP388");
+    let mut bmp = Bmp581::new_i2c(i2c, I2cAddr::Default);
+
+    if bmp.init(&mut delay).is_err() {
+        error!("Could not initalize BMP581");
         return
     };
 
-    // set power control to normal
-    bmp.set_power_control(PowerControl::normal()).unwrap();
-
     // Set up measurement settings
-    bmp.set_oversampling(bmp388::config::OversamplingConfig {
-        osr_pressure: bmp388::Oversampling::x8,
-        osr_temperature: bmp388::Oversampling::x1,
-    })
-    .unwrap();
-    bmp.set_filter(bmp388::Filter::c3).unwrap();
-    bmp.set_sampling_rate(bmp388::SamplingRate::ms20).unwrap();
+    bmp.set_osr_config(bmp581::types::OsrConfig {
+        pressure_enable: true,
+        osr_pressure: Osr::Osr8,
+        osr_temperature: Osr::Osr1,
+    }).unwrap();
+
+    // Set up output rate settings
+    bmp.set_odr_config(bmp581::types::OdrConfig {
+        deep_dis: DeepDis::Disabled,
+        odr: Odr::Hz20_000,
+        power_mode: PowerMode::Normal,
+    }).unwrap();
 
     loop {
         sleep(Duration::from_millis(50)).await;
 
-        if let Ok(sensor_data) = bmp.sensor_values() {
+        if let Ok(temp) = bmp.read_temperature() && let Ok(pres) = bmp.read_pressure() {
             let _ = data.send(Some(EnvironmentalInfo {
-                pressure: sensor_data.pressure,
-                temperature: sensor_data.temperature,
+                pressure: pres as f64,
+                temperature: temp as f64,
             }));
         }
     }
