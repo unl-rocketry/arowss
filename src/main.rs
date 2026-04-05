@@ -242,6 +242,7 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
 
         // info!("Got NMEA: {}", new_string);
 
+        #[allow(clippy::single_match)]
         match nmea_parser.parse_for_fix(new_string) {
             Ok(_) => (),
             Err(_) => (),
