@@ -32,9 +32,10 @@ jobs:
         restore-keys: |
             ${{ runner.OS }}-build-
 
-    - name: 'Install `cargo-zigbuild` and ensure clippy is installed'
+    - name: 'Install `cargo-zigbuild`, install `aarch64-unknown-linux-gnu` and ensure clippy is installed'
       run: |
         pip install cargo-zigbuild
+        rustup target add aarch64-unknown-linux-gnu
         rustup component add --toolchain nightly-aarch64-unknown-linux-gnu clippy
 
     - name: 'Build'
