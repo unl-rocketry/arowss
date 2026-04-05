@@ -3,7 +3,6 @@ use bmp581::{Bmp581, I2cAddr, types::{DeepDis, Odr, Osr, PowerMode}};
 use commands::CommandParser;
 
 use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, TelemetryPacket};
-use bmp388::{BMP388, PowerControl};
 use linux_embedded_hal::I2cdev;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
