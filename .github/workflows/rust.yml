@@ -15,10 +15,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Install udev-dev
-      run: sudo apt-get install libudev-dev
-    - name: Build
+    - name: '📄 Checkout'
+      uses: actions/checkout@v4
+
+    - name: '⚙️ Set up Rust environment'
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        targets: aarch64-unknown-linux-gnu
+
+    - name: '⚙️ Cache Rust dependencies'
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+            ${{ runner.OS }}-build-
+
+    - name: '⚙️ Install `cargo-zigbuild`'
+      uses: cargo-bins/cargo-binstall@main
+      run: cargo binstall cargo-zigbuild
+
+    - name: '⚙️ Build'
       run: cargo build --verbose --target x86_64-unknown-linux-gnu
-    - name: Run clippy
+
+    - name: '⚙️ Run clippy'
       run: cargo clippy --target x86_64-unknown-linux-gnu -- -D warnings
