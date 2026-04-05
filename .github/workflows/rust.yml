@@ -36,6 +36,7 @@ jobs:
       run: |
         pip install cargo-zigbuild
         rustup target add aarch64-unknown-linux-gnu
+        rustup component add --toolchain nightly-x86_64-unknown-linux-gnu clippy
         rustup component add --toolchain nightly-aarch64-unknown-linux-gnu clippy
 
     - name: 'Build'
