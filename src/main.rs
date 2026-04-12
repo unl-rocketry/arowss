@@ -7,8 +7,8 @@ use linux_embedded_hal::I2cdev;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
-use std::{cell::RefCell, collections::VecDeque, sync::{Arc, mpsc::{self, Receiver, Sender}}, time::Duration};
-use tokio::{join, spawn, sync::watch, time::{self, sleep}};
+use std::{collections::VecDeque, sync::{Arc, mpsc::{self, Receiver, Sender}}, time::Duration};
+use tokio::{join, sync::watch, time::{self, sleep}};
 use serialport::SerialPort;
 use std::sync::Mutex;
 use bno055::BNO055PowerMode;
@@ -79,7 +79,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
     info!("Spawned BMP task");
 
     // Spawn BNO task
-    let (bno_send, bno_recv) = watch::channel(None);
+    let (bno_send, _bno_recv) = watch::channel(None);
     let bnoi2c = Arc::clone(&i2c);
     tokio::spawn(async move {
         let bnoi2c = MutexDevice::new(&*bnoi2c);
@@ -322,7 +322,7 @@ async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDev
 }
 
 #[instrument(skip_all)]
-async fn bno055_loop(data: watch::Sender<Option<(f64, f64)>>, i2c: MutexDevice<'_, I2cdev>) {
+async fn bno055_loop(_data: watch::Sender<Option<(f64, f64)>>, i2c: MutexDevice<'_, I2cdev>) {
     let mut bno055 = bno055::Bno055::new(i2c);
     let mut delay = linux_embedded_hal::Delay;
     bno055.set_mode(bno055::BNO055OperationMode::NDOF, &mut delay).unwrap();
