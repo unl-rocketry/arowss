@@ -58,6 +58,10 @@ pub struct EnvironmentalInfo {
     #[serde(serialize_with = "truncate_float")]
     #[serde(rename = "temp")]
     pub temperature: f64,
+    /// humidity of the inside of the payload
+    #[serde(serialize_with = "truncate_float")]
+    #[serde(rename = "humid")]
+    pub humidity: f64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

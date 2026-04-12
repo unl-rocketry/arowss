@@ -1,3 +1,4 @@
+use embedded_hal::delay::DelayNs;
 mod commands;
 use bmp581::{Bmp581, I2cAddr, types::{DeepDis, Odr, Osr, PowerMode}};
 use commands::CommandParser;
@@ -8,11 +9,16 @@ use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
 use std::{collections::VecDeque, sync::mpsc::{self, Receiver, Sender}, time::Duration};
+use std::sync::Arc;
+use rppal::i2c::I2c;
 use tokio::{
     join, sync::watch,
     time::{self, sleep},
 };
 use serialport::SerialPort;
+use std::sync::Mutex;
+use bno055::BNO055PowerMode;
+use embedded_hal_bus::i2c::MutexDevice;
 
 const RFD_PATH: &str = "/dev/ttyAMA2";
 const RFD_BAUD: u32 = 57600;
@@ -32,6 +38,8 @@ async fn main() {
 
     info!("\x1b[93mAROWSS (Automatic Remote Onboard Wireless Streaming System)\x1b[0m \x1b[92minitalized.\x1b[0m");
 
+    let i2c = MutexDevice::new(&Mutex::new(I2cdev::new("/dev/i2c-1").unwrap()));
+
     let rfd_port = serialport::new(RFD_PATH, RFD_BAUD)
         .parity(serialport::Parity::None)
         .stop_bits(serialport::StopBits::One)
@@ -48,7 +56,7 @@ async fn main() {
     let (info_send, info_recv) = mpsc::channel();
 
     // Spawn and wait on the tasks until they finish, which they should never
-    let send = tokio::spawn(sending_loop(rfd_send, info_recv));
+    let send = tokio::spawn(sending_loop(rfd_send, info_recv, i2c));
     let recv = tokio::spawn(command_loop(rfd_recv, info_send));
 
     info!("Waiting on tasks...");
@@ -59,7 +67,7 @@ async fn main() {
 }
 
 #[instrument(skip_all)]
-async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<String>) {
+async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<String>, i2c: MutexDevice<'_, I2cdev>) {
     info!("Initalized telemetry sending");
 
     // Spawn GPS task
@@ -68,8 +76,8 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
     info!("Spawned GPS task");
 
     // Spawn BMP task
-    let (bmp_send, bmp_recv) = watch::channel(None);
-    tokio::spawn(bmp_loop(bmp_send));
+    let (bmp_send, bmp_recv) = watch::channel((None,None));
+    tokio::spawn(bmp_loop(bmp_send, i2c));
     info!("Spawned BMP task");
 
     let mut info_deque = VecDeque::new();
@@ -94,9 +102,19 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         }
 
         // Construct a packet from the data
+        let bmp_data = *bmp_recv.borrow();
+        let pressure = bmp_data.0.unwrap_or_else(|| 0.0);
+        let temperature = bmp_data.1.unwrap_or_else(|| 0.0);
+
+        let env_info = EnvironmentalInfo {
+            pressure,
+            temperature,
+            humidity: 0.0,
+        };
+
         let packet = TelemetryPacket {
             gps: *gps_recv.borrow(),
-            environmental_info: *bmp_recv.borrow(),
+            environmental_info: Some(env_info),
             info: info_deque.clone(),
         };
 
@@ -264,10 +282,9 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
 
 /// Function to read the BMP581 pressure and temp sensor.
 #[instrument(skip_all)]
-async fn bmp_loop(data: watch::Sender<Option<EnvironmentalInfo>>) {
-    let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-    let mut delay = linux_embedded_hal::Delay;
+async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDevice<'_, I2cdev>) {
     let mut bmp = Bmp581::new_i2c(i2c, I2cAddr::Default);
+    let mut delay = linux_embedded_hal::Delay;
 
     if bmp.init(&mut delay).is_err() {
         error!("Could not initalize BMP581");
@@ -292,10 +309,22 @@ async fn bmp_loop(data: watch::Sender<Option<EnvironmentalInfo>>) {
         sleep(Duration::from_millis(50)).await;
 
         if let Ok(temp) = bmp.read_temperature() && let Ok(pres) = bmp.read_pressure() {
-            let _ = data.send(Some(EnvironmentalInfo {
-                pressure: pres as f64,
-                temperature: temp as f64,
-            }));
+            let _ = data.send((Some(pres as f64), Some(temp as f64)));
         }
     }
 }
+
+#[instrument(skip_all)]
+async fn bno055_loop(data: watch::Sender<Option<(f64, f64)>>, i2c: MutexDevice<'_, I2cdev>) {
+    let mut bno055 = bno055::Bno055::new(i2c);
+    let mut delay = linux_embedded_hal::Delay;
+    bno055.set_mode(bno055::BNO055OperationMode::NDOF, &mut delay).unwrap();
+    bno055.set_power_mode(BNO055PowerMode::NORMAL).unwrap();
+    bno055.init(&mut delay).unwrap();
+}
+
+// #[instrument(skip_all)]
+// async fn hts221_loop(data: watch::Sender<Option<(f64, f64)>>, mut i2c: MutexDevice<'_, I2cdev>) {
+//     let mut delay = linux_embedded_hal::Delay;
+//     let mut hts = hts221::Builder::new().with_data_rate(hts221::DataRate::Continuous1Hz).build(&mut i2c).unwrap();
+// }

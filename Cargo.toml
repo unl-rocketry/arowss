@@ -19,3 +19,7 @@ tracing = "0.1"
 serialport = { version = "4.9", default-features = false }
 thiserror = "2.0"
 bmp581 = "0.1.0"
+hts221 = "0.3.0"
+embedded-hal-bus = { version = "0.3.0", features = ["std"] }
+bno055 = { version = "0.4.0", features = ["std", "serde"] }
+embedded-hal = "1.0.0"
