@@ -1,4 +1,3 @@
-use embedded_hal::delay::DelayNs;
 mod commands;
 use bmp581::{Bmp581, I2cAddr, types::{DeepDis, Odr, Osr, PowerMode}};
 use commands::CommandParser;
@@ -8,13 +7,8 @@ use linux_embedded_hal::I2cdev;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
-use std::{collections::VecDeque, sync::mpsc::{self, Receiver, Sender}, time::Duration};
-use std::sync::Arc;
-use rppal::i2c::I2c;
-use tokio::{
-    join, sync::watch,
-    time::{self, sleep},
-};
+use std::{cell::RefCell, collections::VecDeque, sync::{Arc, mpsc::{self, Receiver, Sender}}, time::Duration};
+use tokio::{join, spawn, sync::watch, time::{self, sleep}};
 use serialport::SerialPort;
 use std::sync::Mutex;
 use bno055::BNO055PowerMode;
@@ -38,8 +32,6 @@ async fn main() {
 
     info!("\x1b[93mAROWSS (Automatic Remote Onboard Wireless Streaming System)\x1b[0m \x1b[92minitalized.\x1b[0m");
 
-    let i2c = MutexDevice::new(&Mutex::new(I2cdev::new("/dev/i2c-1").unwrap()));
-
     let rfd_port = serialport::new(RFD_PATH, RFD_BAUD)
         .parity(serialport::Parity::None)
         .stop_bits(serialport::StopBits::One)
@@ -56,7 +48,7 @@ async fn main() {
     let (info_send, info_recv) = mpsc::channel();
 
     // Spawn and wait on the tasks until they finish, which they should never
-    let send = tokio::spawn(sending_loop(rfd_send, info_recv, i2c));
+    let send = tokio::spawn(sending_loop(rfd_send, info_recv));
     let recv = tokio::spawn(command_loop(rfd_recv, info_send));
 
     info!("Waiting on tasks...");
@@ -67,8 +59,10 @@ async fn main() {
 }
 
 #[instrument(skip_all)]
-async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<String>, i2c: MutexDevice<'_, I2cdev>) {
+async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<String>) {
     info!("Initalized telemetry sending");
+
+    let i2c = Arc::new(Mutex::new(I2cdev::new("/dev/i2c-1").unwrap()));
 
     // Spawn GPS task
     let (gps_send, gps_recv) = watch::channel(None);
@@ -77,8 +71,21 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
 
     // Spawn BMP task
     let (bmp_send, bmp_recv) = watch::channel((None,None));
-    tokio::spawn(bmp_loop(bmp_send, i2c));
+    let bmpi2c = Arc::clone(&i2c);
+    tokio::spawn(async move {
+        let bmpi2c = MutexDevice::new(&*bmpi2c);
+        bmp_loop(bmp_send, bmpi2c).await;
+    });
     info!("Spawned BMP task");
+
+    // Spawn BNO task
+    let (bno_send, bno_recv) = watch::channel(None);
+    let bnoi2c = Arc::clone(&i2c);
+    tokio::spawn(async move {
+        let bnoi2c = MutexDevice::new(&*bnoi2c);
+        bno055_loop(bno_send, bnoi2c).await;
+    });
+    info!("Spawned BNO task");
 
     let mut info_deque = VecDeque::new();
 
@@ -103,8 +110,8 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
 
         // Construct a packet from the data
         let bmp_data = *bmp_recv.borrow();
-        let pressure = bmp_data.0.unwrap_or_else(|| 0.0);
-        let temperature = bmp_data.1.unwrap_or_else(|| 0.0);
+        let pressure = bmp_data.0.unwrap_or(0.0);
+        let temperature = bmp_data.1.unwrap_or(0.0);
 
         let env_info = EnvironmentalInfo {
             pressure,
