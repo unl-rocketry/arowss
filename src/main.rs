@@ -11,8 +11,9 @@ use std::{collections::VecDeque, sync::{Arc, mpsc::{self, Receiver, Sender}}, ti
 use tokio::{join, sync::watch, time::{self, sleep}};
 use serialport::SerialPort;
 use std::sync::Mutex;
-use bno055::BNO055PowerMode;
+use bno055::{mint, BNO055PowerMode};
 use embedded_hal_bus::i2c::MutexDevice;
+use embedded_hal_compat::Reverse;
 
 const RFD_PATH: &str = "/dev/ttyAMA2";
 const RFD_BAUD: u32 = 57600;
@@ -79,13 +80,22 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
     info!("Spawned BMP task");
 
     // Spawn BNO task
-    let (bno_send, _bno_recv) = watch::channel(None);
+    let (bno_send, bno_recv) = watch::channel(None);
     let bnoi2c = Arc::clone(&i2c);
     tokio::spawn(async move {
         let bnoi2c = MutexDevice::new(&*bnoi2c);
         bno055_loop(bno_send, bnoi2c).await;
     });
     info!("Spawned BNO task");
+    
+    //Spawn HTS task
+    let (hts_send, hts_recv) = watch::channel(None);
+    let htsi2c = Arc::clone(&i2c);
+    tokio::spawn(async move {
+        let htsi2c = MutexDevice::new(&*htsi2c);
+        hts221_loop(hts_send, htsi2c).await;
+    });
+    info!("Spawned HTS task");
 
     let mut info_deque = VecDeque::new();
 
@@ -112,16 +122,20 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         let bmp_data = *bmp_recv.borrow();
         let pressure = bmp_data.0.unwrap_or(0.0);
         let temperature = bmp_data.1.unwrap_or(0.0);
+        
+        let hts_data = *hts_recv.borrow();
+        let humidity = hts_data.unwrap_or(0.0);
 
         let env_info = EnvironmentalInfo {
             pressure,
             temperature,
-            humidity: 0.0,
+            humidity,
         };
 
         let packet = TelemetryPacket {
             gps: *gps_recv.borrow(),
             environmental_info: Some(env_info),
+            orientation_info: *bno_recv.borrow(),
             info: info_deque.clone(),
         };
 
@@ -322,16 +336,31 @@ async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDev
 }
 
 #[instrument(skip_all)]
-async fn bno055_loop(_data: watch::Sender<Option<(f64, f64)>>, i2c: MutexDevice<'_, I2cdev>) {
+async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: MutexDevice<'_, I2cdev>) {
     let mut bno055 = bno055::Bno055::new(i2c);
     let mut delay = linux_embedded_hal::Delay;
     bno055.set_mode(bno055::BNO055OperationMode::NDOF, &mut delay).unwrap();
     bno055.set_power_mode(BNO055PowerMode::NORMAL).unwrap();
     bno055.init(&mut delay).unwrap();
+
+    loop {
+        sleep(Duration::from_millis(50)).await;
+        if let Ok(quat) = bno055.quaternion() {
+            let _ = data.send(Some(quat));
+        }
+    }
 }
 
-// #[instrument(skip_all)]
-// async fn hts221_loop(data: watch::Sender<Option<(f64, f64)>>, mut i2c: MutexDevice<'_, I2cdev>) {
-//     let mut delay = linux_embedded_hal::Delay;
-//     let mut hts = hts221::Builder::new().with_data_rate(hts221::DataRate::Continuous1Hz).build(&mut i2c).unwrap();
-// }
+#[instrument(skip_all)]
+async fn hts221_loop(data: watch::Sender<Option<f64>>, i2c: MutexDevice<'_, I2cdev>) {
+    let mut i2c = Reverse::new(i2c);
+    let mut hts221 = hts221::Builder::new().with_data_rate(hts221::DataRate::Continuous1Hz).build(&mut i2c).unwrap();
+    
+    loop {
+        sleep(Duration::from_millis(50)).await;
+        if let Ok(humid) = hts221.humidity_x2(&mut i2c) {
+            let humidity_percent: f64 = (humid / 2) as f64;
+            let _ = data.send(Some(humidity_percent));
+        }
+    }
+}

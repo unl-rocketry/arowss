@@ -1,7 +1,7 @@
 pub mod utils;
 
 use std::collections::VecDeque;
-
+use bno055::mint;
 use serde::{Deserialize, Serialize, Serializer};
 use utils::crc8;
 
@@ -17,6 +17,9 @@ pub struct TelemetryPacket {
 
     /// Environmental information
     pub environmental_info: Option<EnvironmentalInfo>,
+
+    /// Orientation information
+    pub orientation_info: Option<mint::Quaternion<f32>>,
 
     /// Arbitrary information to transfer to the ground
     pub info: VecDeque<String>,

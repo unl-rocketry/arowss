@@ -19,6 +19,7 @@ dependencies = [
  "bno055",
  "embedded-hal 1.0.0",
  "embedded-hal-bus",
+ "embedded-hal-compat",
  "hts221",
  "linux-embedded-hal",
  "nmea",
@@ -234,6 +235,17 @@ checksum = "513e0b3a8fb7d3013a8ae17a834283f170deaf7d0eeab0a7c1a36ad4dd356d22"
 dependencies = [
  "critical-section",
  "embedded-hal 1.0.0",
+]
+
+[[package]]
+name = "embedded-hal-compat"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08ecac72f6be75ad2d4809c9f07d45502e2e5c9a4e9579077f28d7135de81df3"
+dependencies = [
+ "embedded-hal 0.2.7",
+ "embedded-hal 1.0.0",
+ "nb 1.1.0",
 ]
 
 [[package]]
