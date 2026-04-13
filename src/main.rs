@@ -339,9 +339,9 @@ async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDev
 async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: MutexDevice<'_, I2cdev>) {
     let mut bno055 = bno055::Bno055::new(i2c);
     let mut delay = linux_embedded_hal::Delay;
+    bno055.init(&mut delay).unwrap();
     bno055.set_mode(bno055::BNO055OperationMode::NDOF, &mut delay).unwrap();
     bno055.set_power_mode(BNO055PowerMode::NORMAL).unwrap();
-    bno055.init(&mut delay).unwrap();
 
     loop {
         sleep(Duration::from_millis(50)).await;
