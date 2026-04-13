@@ -16,13 +16,13 @@ use embedded_hal_bus::i2c::MutexDevice;
 use embedded_hal_compat::Reverse;
 use hts221::UpdateMode::Block;
 
-const RFD_PATH: &str = "/dev/ttyAMA2";
+const RFD_PATH: &str = "/dev/ttyAMA2";  //ToDo Remember to change this to the correct port
 const RFD_BAUD: u32 = 57600;
 /// This is the maximum number of bytes that can be sent by the RFD-900 per
 /// packet without dropping behind
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
-const GPS_PATH: &str = "/dev/ttyAMA3";
+const GPS_PATH: &str = "/dev/ttyAMA3";  //ToDo Remember to change this to the correct port
 const GPS_BAUD: u32 = 57600;
 
 #[tokio::main]
@@ -163,7 +163,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
     }
 }
 
-const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;    //TODO set to actual pin being used
+const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
 
 #[instrument(skip_all)]
 async fn command_loop(mut rfd_recv: Box<dyn SerialPort>, info_send: Sender<String>) {
