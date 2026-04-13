@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use bno055::{mint, BNO055PowerMode};
 use embedded_hal_bus::i2c::MutexDevice;
 use embedded_hal_compat::Reverse;
+use hts221::UpdateMode::Block;
 
 const RFD_PATH: &str = "/dev/ttyAMA2";
 const RFD_BAUD: u32 = 57600;
@@ -354,7 +355,7 @@ async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: Mu
 #[instrument(skip_all)]
 async fn hts221_loop(data: watch::Sender<Option<f64>>, i2c: MutexDevice<'_, I2cdev>) {
     let mut i2c = Reverse::new(i2c);
-    let mut hts221 = hts221::Builder::new().with_data_rate(hts221::DataRate::Continuous1Hz).build(&mut i2c).unwrap();
+    let mut hts221 = hts221::Builder::new().with_update_mode(Block).with_data_rate(hts221::DataRate::Continuous1Hz).with_boot().build(&mut i2c).unwrap();
     
     loop {
         sleep(Duration::from_millis(50)).await;
