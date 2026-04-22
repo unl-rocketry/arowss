@@ -340,7 +340,10 @@ async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDev
 async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: MutexDevice<'_, I2cdev>) {
     let mut bno055 = bno055::Bno055::new(i2c);
     let mut delay = linux_embedded_hal::Delay;
-    bno055.init(&mut delay).unwrap();
+    if bno055.init(&mut delay).is_err() {
+        error!("Could not initalize BNO055");
+        return
+    };
     bno055.set_mode(bno055::BNO055OperationMode::NDOF, &mut delay).unwrap();
     bno055.set_power_mode(BNO055PowerMode::NORMAL).unwrap();
 
@@ -355,7 +358,13 @@ async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: Mu
 #[instrument(skip_all)]
 async fn hts221_loop(data: watch::Sender<Option<f64>>, i2c: MutexDevice<'_, I2cdev>) {
     let mut i2c = Reverse::new(i2c);
-    let mut hts221 = hts221::Builder::new().with_update_mode(Block).with_data_rate(hts221::DataRate::Continuous1Hz).with_boot().build(&mut i2c).unwrap();
+    let mut hts221 = match hts221::Builder::new().with_update_mode(Block).with_data_rate(hts221::DataRate::Continuous1Hz).with_boot().build(&mut i2c) {
+        Ok(hts) => hts,
+        Err(e) => {
+            error!("Could not initalize HTS221: {e}");
+            return
+        }
+    };
     
     loop {
         sleep(Duration::from_millis(50)).await;
