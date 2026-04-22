@@ -15,7 +15,6 @@ use bno055::{mint, BNO055PowerMode};
 use embedded_hal_bus::i2c::MutexDevice;
 use embedded_hal_compat::Reverse;
 use hts221::UpdateMode::Block;
-use tracing_subscriber::fmt::init;
 
 const RFD_PATH: &str = "/dev/ttyAMA2";  //ToDo Remember to change this to the correct port
 const RFD_BAUD: u32 = 57600;
@@ -306,7 +305,7 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
 /// Function to read the BMP581 pressure and temp sensor.
 #[instrument(skip_all)]
 async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDevice<'_, I2cdev>) {
-    let mut bmp = Bmp581::new_i2c(i2c, I2cAddr::Default);
+    let mut bmp = Bmp581::new_i2c(i2c, I2cAddr::Alternative);
     let mut delay = linux_embedded_hal::Delay;
 
     if let Err(e) = bmp.init(&mut delay) {
