@@ -15,6 +15,7 @@ use bno055::{mint, BNO055PowerMode};
 use embedded_hal_bus::i2c::MutexDevice;
 use embedded_hal_compat::Reverse;
 use hts221::UpdateMode::Block;
+use tracing_subscriber::fmt::init;
 
 const RFD_PATH: &str = "/dev/ttyAMA2";  //ToDo Remember to change this to the correct port
 const RFD_BAUD: u32 = 57600;
@@ -308,8 +309,8 @@ async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDev
     let mut bmp = Bmp581::new_i2c(i2c, I2cAddr::Default);
     let mut delay = linux_embedded_hal::Delay;
 
-    if bmp.init(&mut delay).is_err() {
-        error!("Could not initalize BMP581");
+    if let Err(e) = bmp.init(&mut delay) {
+        error!("Could not initialize BMP581: {:?}", e);
         return
     };
 
@@ -340,8 +341,8 @@ async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDev
 async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: MutexDevice<'_, I2cdev>) {
     let mut bno055 = bno055::Bno055::new(i2c);
     let mut delay = linux_embedded_hal::Delay;
-    if bno055.init(&mut delay).is_err() {
-        error!("Could not initalize BNO055");
+    if let Err(e) = bno055.init(&mut delay) {
+        error!("Could not initialize BNO055: {}", e);
         return
     };
     bno055.set_mode(bno055::BNO055OperationMode::NDOF, &mut delay).unwrap();
