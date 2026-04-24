@@ -29,7 +29,7 @@ const GPS_BAUD: u32 = 9600;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::fmt()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .with_file(false)
         .init();
 
@@ -160,7 +160,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         rfd_send.write_all(&packet_bytes).unwrap();
         rfd_send.write_all(b"\n").unwrap();
 
-        debug!("Sent {} bytes, checksum {}", packet_bytes.len(), packet_crc);
+        debug!("Sent {:?} of {} bytes, checksum {}", packet, packet_bytes.len(), packet_crc);
 
         rfd_send.flush().unwrap();
 
