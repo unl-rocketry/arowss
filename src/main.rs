@@ -5,6 +5,7 @@ use commands::CommandParser;
 
 use arowss::{utils::crc8, EnvironmentalInfo, GpsInfo, TelemetryPacket};
 use linux_embedded_hal::I2cdev;
+use serde_json::Value;
 use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
@@ -188,13 +189,12 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>, info_send: Sender<Strin
         info_sender: info_send,
     };
 
-    // Each buffer must consist of 3 bytes:
-    //  1. Command
-    //  2. Checksum
-    //  3. Space b' '
+    // Packet structure (big-endian)
     //
-    //  If the buffer violates this at any time, it must be discarded as
-    //  invalid.
+    // 1. Single null byte (u8)
+    // 2. Payload length (u16)
+    // 3. JSON payload (variable)
+    // 4. CRC (u8)
     let mut buf = Vec::new();
     loop {
         let mut byte_buf = [0];
@@ -204,38 +204,19 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>, info_send: Sender<Strin
 
         buf.push(byte_buf[0]);
 
-        if buf.len() > 3 || (buf.last() != Some(&b' ') && buf.len() == 3) {
-            warn!("Buffer invalid: {:?}", buf);
-            buf.clear();
-            continue;
-        }
+        // If we found a null byte, a new packet is starting so try to parse
+        // what must have just been recieved
+        if byte_buf[0] == b'\0' && !buf.is_empty() {
+            let payload_len = u16::from_be_bytes(*buf[0..=1].as_array().unwrap()) as usize;
 
-        if buf.first() == Some(&b' ') || buf.get(1) == Some(&b' ') {
-            warn!("Buffer invalid: {:?}", buf);
-            buf.clear();
-            continue;
-        }
+            let payload: Value = serde_json::from_slice(&buf[2..2 + payload_len]).unwrap();
 
-        if buf.len() == 3 && buf.last() == Some(&b' ') {
-            info!("Got command {:?}", buf);
+            let calculated_crc = crc8(&buf[2..2 + payload_len]);
 
-            let data = buf[0];
-            let check = buf[1];
+            let packet_crc = buf[2 + payload_len + 1];
 
-            let new_cksum = crc8(&[data]);
-
-            if check != new_cksum {
-                warn!(
-                    "Checksums do not match ({} != {}), discarding packet",
-                    check,
-                    new_cksum
-                );
-                continue;
-            }
-
-            match command_parser.parse_command(data).await {
-                Ok(()) => (),
-                Err(e) => error!("ERR: {e:?}, {e}"),
+            if calculated_crc != packet_crc {
+                warn!("packet crc does not match calculated crc: {} != {}", packet_crc, calculated_crc)
             }
 
             buf.clear();
