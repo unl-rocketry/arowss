@@ -24,7 +24,7 @@ const RFD_BAUD: u32 = 57600;
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
 const GPS_PATH: &str = "/dev/ttyAMA3";  //ToDo Remember to change this to the correct port
-const GPS_BAUD: u32 = (9600);
+const GPS_BAUD: u32 = 9600;
 
 #[tokio::main]
 async fn main() {
