@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "aerospace-rocketry-lib"
+version = "0.1.0"
+source = "git+https://github.com/unl-rocketry/aerospace-rocketry-lib.git#9dcb97553d8e082fdcaff9c7f4543374f38c3540"
+dependencies = [
+ "libm",
+ "ordered-float",
+ "thiserror",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15,6 +25,7 @@ dependencies = [
 name = "arowss"
 version = "0.1.0"
 dependencies = [
+ "aerospace-rocketry-lib",
  "bmp581",
  "bno055",
  "embedded-hal 1.0.0",
@@ -664,6 +675,15 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "ordered-float"
+version = "5.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7d950ca161dc355eaf28f82b11345ed76c6e1f6eb1f4f4479e0323b9e2fbd0e"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "parking_lot"

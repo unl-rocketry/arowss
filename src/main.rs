@@ -1,4 +1,5 @@
 mod commands;
+use aerospace_rocketry_lib::geospatial::calculate_barometric_altitude;
 use bmp581::{Bmp581, I2cAddr, types::{DeepDis, Odr, Osr, PowerMode}};
 use commands::CommandParser;
 
@@ -119,14 +120,17 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
             }
         }
 
-        // Construct a packet from the data
         let bmp_data = *bmp_recv.borrow();
         let pressure = bmp_data.0.unwrap_or(0.0);
         let temperature = bmp_data.1.unwrap_or(0.0);
+
+        // Pressure Altitude Calculation
+        let p_alt = bmp_data.0.map(|p| calculate_barometric_altitude(p as f32) as f64);
         
         let hts_data = *hts_recv.borrow();
         let humidity = hts_data.unwrap_or(0.0);
 
+        // Construct a packet from the data
         let env_info = EnvironmentalInfo {
             pressure,
             temperature,
@@ -135,6 +139,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
 
         let packet = TelemetryPacket {
             gps: *gps_recv.borrow(),
+            pressure_altitude: p_alt,
             environmental_info: Some(env_info),
             orientation_info: *bno_recv.borrow(),
             info: info_deque.clone(),
@@ -175,6 +180,7 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>, info_send: Sender<Strin
         .unwrap()
         .into_output();
     relay_pin.set_reset_on_drop(false);
+    relay_pin.set_high();
 
     // Create command parser with devices
     let mut command_parser = CommandParser {
@@ -349,6 +355,7 @@ async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: Mu
 
     loop {
         sleep(Duration::from_millis(50)).await;
+
         if let Ok(quat) = bno055.quaternion() {
             let _ = data.send(Some(quat));
         }
@@ -358,7 +365,12 @@ async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: Mu
 #[instrument(skip_all)]
 async fn hts221_loop(data: watch::Sender<Option<f64>>, i2c: MutexDevice<'_, I2cdev>) {
     let mut i2c = Reverse::new(i2c);
-    let mut hts221 = match hts221::Builder::new().with_update_mode(Block).with_data_rate(hts221::DataRate::Continuous1Hz).with_boot().build(&mut i2c) {
+    let mut hts221 = match hts221::Builder::new()
+        .with_update_mode(Block)
+        .with_data_rate(hts221::DataRate::Continuous1Hz)
+        .with_boot()
+        .build(&mut i2c)
+    {
         Ok(hts) => hts,
         Err(e) => {
             error!("Could not initalize HTS221: {e}");
@@ -368,6 +380,7 @@ async fn hts221_loop(data: watch::Sender<Option<f64>>, i2c: MutexDevice<'_, I2cd
     
     loop {
         sleep(Duration::from_millis(50)).await;
+
         if let Ok(humid) = hts221.humidity_x2(&mut i2c) {
             let humidity_percent: f64 = (humid / 2) as f64;
             let _ = data.send(Some(humidity_percent));

@@ -15,10 +15,16 @@ pub struct TelemetryPacket {
     /// Full GPS telemetry information
     pub gps: Option<GpsInfo>,
 
+    /// Calculated Altitude
+    #[serde(rename = "p_alt")]
+    pub pressure_altitude: Option<f64>,
+
     /// Environmental information
+    #[serde(rename = "env")]
     pub environmental_info: Option<EnvironmentalInfo>,
 
     /// Orientation information
+    #[serde(rename = "imu")]
     pub orientation_info: Option<mint::Quaternion<f32>>,
 
     /// Arbitrary information to transfer to the ground
