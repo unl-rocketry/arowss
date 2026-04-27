@@ -25,12 +25,12 @@ const RFD_BAUD: u32 = 57600;
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
 const GPS_PATH: &str = "/dev/ttyAMA3";  //ToDo Remember to change this to the correct port
-const GPS_BAUD: u32 = 57600;
+const GPS_BAUD: u32 = 9600;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::fmt()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .with_file(false)
         .init();
 
@@ -161,7 +161,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         rfd_send.write_all(&packet_bytes).unwrap();
         rfd_send.write_all(b"\n").unwrap();
 
-        debug!("Sent {} bytes, checksum {}", packet_bytes.len(), packet_crc);
+        debug!("Sent {:?} of {} bytes, checksum {}", packet, packet_bytes.len(), packet_crc);
 
         rfd_send.flush().unwrap();
 
@@ -325,7 +325,7 @@ async fn bmp_loop(data: watch::Sender<(Option<f64>, Option<f64>)>, i2c: MutexDev
 
 #[instrument(skip_all)]
 async fn bno055_loop(data: watch::Sender<Option<mint::Quaternion<f32>>>, i2c: MutexDevice<'_, I2cdev>) {
-    let mut bno055 = bno055::Bno055::new(i2c);
+    let mut bno055 = bno055::Bno055::new(i2c).with_alternative_address();
     let mut delay = linux_embedded_hal::Delay;
     if let Err(e) = bno055.init(&mut delay) {
         error!("Could not initialize BNO055: {}", e);
