@@ -9,7 +9,7 @@ use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
 use std::{collections::VecDeque, sync::{Arc, mpsc::{self, Receiver, Sender}}, time::Duration};
-use tokio::{fs, join, sync::watch, time::{self, sleep}};
+use tokio::{io::AsyncWriteExt as _, join, sync::watch, time::{self, sleep}};
 use serialport::SerialPort;
 use std::sync::Mutex;
 use bno055::{mint, BNO055PowerMode};
