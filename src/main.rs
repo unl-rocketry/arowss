@@ -9,13 +9,14 @@ use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
 use std::{collections::VecDeque, sync::{Arc, mpsc::{self, Receiver, Sender}}, time::Duration};
-use tokio::{join, sync::watch, time::{self, sleep}};
+use tokio::{fs, join, sync::watch, time::{self, sleep}};
 use serialport::SerialPort;
 use std::sync::Mutex;
 use bno055::{mint, BNO055PowerMode};
 use embedded_hal_bus::i2c::MutexDevice;
 use embedded_hal_compat::Reverse;
 use hts221::UpdateMode::Block;
+use chrono::prelude::*;
 
 const RFD_PATH: &str = "/dev/ttyAMA2";  //ToDo Remember to change this to the correct port
 const RFD_BAUD: u32 = 57600;
@@ -64,6 +65,15 @@ async fn main() {
 #[instrument(skip_all)]
 async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<String>) {
     info!("Initalized telemetry sending");
+
+    let timestamp = Utc::now().to_rfc3339();
+
+    let mut telemetry_file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(format!("telemetry_{}.json", timestamp))
+        .await
+        .unwrap();
 
     let i2c = Arc::new(Mutex::new(I2cdev::new("/dev/i2c-1").unwrap()));
 
@@ -163,6 +173,9 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         debug!("Sent {:?} of {} bytes, checksum {}", packet, packet_bytes.len(), packet_crc);
 
         rfd_send.flush().unwrap();
+
+        telemetry_file.write_all(&packet_bytes).await.unwrap();
+        telemetry_file.write_all(b"\n").await.unwrap();
 
         sending_interval.tick().await;
     }
