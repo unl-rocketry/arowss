@@ -24,8 +24,11 @@ const RFD_BAUD: u32 = 57600;
 /// packet without dropping behind
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
-const GPS_PATH: &str = "/dev/ttyAMA3";  //ToDo Remember to change this to the correct port
-const GPS_BAUD: u32 = 9600;
+const GPS_PATH: &str = "/dev/ttyS0";  //ToDo Remember to change this to the correct port
+const GPS_BAUD: u32 = 115_200;
+
+const GPS_SECONDARY: &str = "/dev/ttyAMA2";
+const GPS_SECONDARY_BAUD: u32 = 9600;
 
 #[tokio::main]
 async fn main() {
@@ -81,6 +84,9 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
     let (gps_send, gps_recv) = watch::channel(None);
     tokio::spawn(gps_loop(gps_send));
     info!("Spawned GPS task");
+
+    tokio::spawn(gps_secondary_loop());
+    info!("Spawned Secondary GPS task");
 
     // Spawn BMP task
     let (bmp_send, bmp_recv) = watch::channel((None,None));
@@ -256,7 +262,7 @@ async fn command_loop(mut rfd_recv: Box<dyn SerialPort>, info_send: Sender<Strin
     }
 }
 
-/// Function to read the Ublox ZED-F9P GPS module.
+/// Function to read the Adafruit Ultimate GPS module.
 #[instrument(skip_all)]
 async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
     // Set up the GPS serial port. This must utilize the proper port on the
@@ -318,6 +324,35 @@ async fn gps_loop(data: watch::Sender<Option<GpsInfo>>) {
                 satellites: nmea_parser.satellites().len() as u8
             }));
         }
+    }
+}
+
+/// Function to read the Ublox ZED-F9P GPS module.
+#[instrument(skip_all)]
+async fn gps_secondary_loop() {
+    let mut gps_port = serialport::new(GPS_SECONDARY, GPS_SECONDARY_BAUD)
+        .timeout(Duration::from_millis(50))
+        .open()
+        .unwrap();
+
+    let timestamp = Utc::now().to_rfc3339();
+    let mut gps_file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(format!("secondarygps_{}.json", timestamp))
+        .await
+        .unwrap();
+
+    let mut byte_buf = [0u8; 1024];
+
+    loop {
+        let bytes_read = gps_port.read(&mut byte_buf).unwrap_or_default();
+
+        if bytes_read == 0 {
+            continue;
+        }
+
+        let _ = gps_file.write_all(&byte_buf[0..bytes_read]).await;
     }
 }
 
