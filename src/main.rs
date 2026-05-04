@@ -18,13 +18,13 @@ use embedded_hal_compat::Reverse;
 use hts221::UpdateMode::Block;
 use chrono::prelude::*;
 
-const RFD_PATH: &str = "/dev/ttyAMA2";  //ToDo Remember to change this to the correct port
+const RFD_PATH: &str = "/dev/ttyAMA2";
 const RFD_BAUD: u32 = 57600;
 /// This is the maximum number of bytes that can be sent by the RFD-900 per
 /// packet without dropping behind
 const MAX_PACKET_BYTES: usize = (RFD_BAUD as usize / 9) / 4;
 
-const GPS_PATH: &str = "/dev/ttyS0";  //ToDo Remember to change this to the correct port
+const GPS_PATH: &str = "/dev/ttyS0";
 const GPS_BAUD: u32 = 9600;
 
 const GPS_SECONDARY: &str = "/dev/ttyAMA2";
@@ -75,8 +75,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         .create(true)
         .append(true)
         .open(format!("telemetry_{}.json", timestamp))
-        .await
-        .unwrap();
+        .await.ok();
 
     let i2c = Arc::new(Mutex::new(I2cdev::new("/dev/i2c-1").unwrap()));
 
@@ -105,8 +104,8 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         bno055_loop(bno_send, bnoi2c).await;
     });
     info!("Spawned BNO task");
-    
-    //Spawn HTS task
+
+    // Spawn HTS task
     let (hts_send, hts_recv) = watch::channel(None);
     let htsi2c = Arc::clone(&i2c);
     tokio::spawn(async move {
@@ -142,7 +141,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
 
         // Pressure Altitude Calculation
         let p_alt = bmp_data.0.map(|p| calculate_barometric_altitude(p as f32) as f64);
-        
+
         let hts_data = *hts_recv.borrow();
         let humidity = hts_data.unwrap_or(0.0);
 
@@ -180,8 +179,11 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
 
         rfd_send.flush().unwrap();
 
-        telemetry_file.write_all(&packet_bytes).await.unwrap();
-        telemetry_file.write_all(b"\n").await.unwrap();
+        if let Some(t_file) = telemetry_file.as_mut() {
+            let _ = t_file.write_all(&packet_bytes).await;
+            let _ = t_file.write_all(b"\n").await;
+            let _ = t_file.flush().await;
+        }
 
         sending_interval.tick().await;
     }
@@ -353,7 +355,9 @@ async fn gps_secondary_loop() {
         }
 
         let _ = gps_file.write_all(&byte_buf[0..bytes_read]).await;
+        let _ = gps_file.flush().await;
     }
+
 }
 
 /// Function to read the BMP581 pressure and temp sensor.
