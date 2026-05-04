@@ -13,11 +13,11 @@ the Raspberry Pi.
 | UART | Component | Tx  | Rx  | Baud |
 |------|:---------:|:---:|:---:|:----:|
 |UART0 | Primary GPS | 14  | 15  | `9600` |
-|~~UART1~~| DO NOT USE |~~14~~ |~~15~~ |
+|~~UART1~~| DO NOT USE |~~14~~ |~~15~~ | ~~--~~ |
 |UART2 | RFD-900x Radio | 0 | 1 | `57600` |
 |UART3 | Secondary GPS | 4 | 5 | `115200` |
-|UART4 |           | 8   | 9   |  |
-|UART5 |           | 12  | 13  |  |
+|UART4 |    --     | 8   | 9   | -- |
+|UART5 |    --     | 12  | 13  | -- |
 
 
 ## Other Wiring
