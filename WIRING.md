@@ -10,14 +10,14 @@ For UART connections, the TX pin of the device always connects to the RX pin on
 the Raspberry Pi, and the RX pin of the device always connects to the TX pin on
 the Raspberry Pi.
 
-| UART | Component | Tx  | Rx  |
-|------|:---------:|:---:|:---:|
-|UART0 |           | 14  | 15  |
+| UART | Component | Tx  | Rx  | Baud |
+|------|:---------:|:---:|:---:|:----:|
+|UART0 | Primary GPS | 14  | 15  | `9600` |
 |~~UART1~~| DO NOT USE |~~14~~ |~~15~~ |
-|UART2 | RFD-900x Radio | 0   | 1   |
-|UART3 | ZED-F9P GPS | 4   | 5   |
-|UART4 |           | 8   | 9   |
-|UART5 |           | 12  | 13  |
+|UART2 | RFD-900x Radio | 0 | 1 | `57600` |
+|UART3 | Secondary GPS | 4 | 5 | `115200` |
+|UART4 |           | 8   | 9   |  |
+|UART5 |           | 12  | 13  |  |
 
 
 ## Other Wiring
@@ -25,4 +25,4 @@ the Raspberry Pi.
 | Component | Pin(s) |
 |-----------|--------|
 | I²C       | 2 (SDA), 3 (SCL) |
-| Relay     | 26     |
+| High Power Control SSR     | 26     |
