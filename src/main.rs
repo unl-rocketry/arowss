@@ -9,7 +9,7 @@ use tracing::{warn, debug, error, info, instrument, Level};
 use nmea::{Nmea, SentenceType};
 use rppal::gpio::Gpio;
 use std::{collections::VecDeque, sync::{Arc, mpsc::{self, Receiver, Sender}}, time::Duration};
-use tokio::{io::AsyncWriteExt as _, join, sync::watch, time::{self, sleep}};
+use tokio::{io::AsyncWriteExt as _, join, net::UdpSocket, sync::watch, time::{self, sleep}};
 use serialport::SerialPort;
 use std::sync::Mutex;
 use bno055::{mint, BNO055PowerMode};
@@ -30,6 +30,11 @@ const GPS_BAUD: u32 = 9600;
 const GPS_SECONDARY: &str = "/dev/ttyAMA2";
 const GPS_SECONDARY_BAUD: u32 = 115_200;
 
+const UDP_PORT: &str = "0.0.0.0:3939";
+const UDP_TARGET: &str = "192.168.199.1";
+
+const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::fmt()
@@ -37,7 +42,7 @@ async fn main() {
         .with_file(false)
         .init();
 
-    info!("\x1b[93mAROWSS (Automatic Remote Onboard Wireless Streaming System)\x1b[0m \x1b[92minitalized.\x1b[0m");
+    info!("AROWSS (Automatic Remote Onboard Wireless Streaming System) initialized.");
 
     let rfd_port = serialport::new(RFD_PATH, RFD_BAUD)
         .parity(serialport::Parity::None)
@@ -45,9 +50,11 @@ async fn main() {
         .data_bits(serialport::DataBits::Eight)
         .timeout(Duration::from_millis(50))
         .open()
-        .unwrap();
+        .expect("RFD failed to initalize");
 
     info!("RFD-900x serial port open on {RFD_PATH}");
+
+    info!("UDP connection opened on {UDP_PORT} targeting {UDP_TARGET}");
 
     let rfd_send = rfd_port.try_clone().unwrap();
     let rfd_recv = rfd_port.try_clone().unwrap();
@@ -76,6 +83,9 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         .append(true)
         .open(format!("telemetry_{}.json", timestamp))
         .await.ok();
+
+    let mut udp_send = UdpSocket::bind(UDP_PORT).await.expect("Couldn't bind to socket address");
+    udp_send.connect(UDP_TARGET).await.unwrap();
 
     let i2c = Arc::new(Mutex::new(I2cdev::new("/dev/i2c-1").unwrap()));
 
@@ -160,36 +170,53 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
             info: info_deque.clone(),
         };
 
-        // Calculate the CRC of the packet based on its data.
-        let (packet_bytes, packet_crc) = packet.vec_crc();
-
-        if packet_bytes.len() > MAX_PACKET_BYTES {
-            warn!("Packet size of {} bytes exceeds max of {MAX_PACKET_BYTES}", packet_bytes.len());
-        }
-
-        // Write the data out
-        rfd_send
-            .write_all(packet_crc.to_string().as_bytes())
-            .unwrap();
-        rfd_send.write_all(b" ").unwrap();
-        rfd_send.write_all(&packet_bytes).unwrap();
-        rfd_send.write_all(b"\n").unwrap();
-
-        debug!("Sent {:?} of {} bytes, checksum {}", packet, packet_bytes.len(), packet_crc);
-
-        rfd_send.flush().unwrap();
-
-        if let Some(t_file) = telemetry_file.as_mut() {
-            let _ = t_file.write_all(&packet_bytes).await;
-            let _ = t_file.write_all(b"\n").await;
-            let _ = t_file.flush().await;
-        }
+        write_data(
+            &packet,
+            &mut rfd_send,
+            &mut udp_send,
+            &mut telemetry_file
+        ).await;
 
         sending_interval.tick().await;
     }
 }
 
-const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
+/// Write data out to the outputs which need it
+#[instrument(skip_all)]
+async fn write_data(
+    packet: &TelemetryPacket,
+    rfd_send: &mut Box<dyn SerialPort>,
+    udp_send: &mut UdpSocket,
+    telemetry_file: &mut Option<tokio::fs::File>
+) {
+    // Calculate the CRC of the packet based on its data.
+    let (packet_bytes, packet_crc) = packet.vec_crc();
+
+    if packet_bytes.len() > MAX_PACKET_BYTES {
+        warn!("Packet size of {} bytes exceeds max of {MAX_PACKET_BYTES}", packet_bytes.len());
+    }
+
+    // Write the data out to the RFD-900x
+    let _ = rfd_send.write_all(packet_crc.to_string().as_bytes());
+    let _ = rfd_send.write_all(b" ");
+    let _ = rfd_send.write_all(&packet_bytes);
+    let _ = rfd_send.write_all(b"\n");
+    let _ = rfd_send.flush();
+
+    // Write the same data out to the UDP port
+    let _ = udp_send.send(packet_crc.to_string().as_bytes()).await;
+    let _ = udp_send.send(b" ").await;
+    let _ = udp_send.send(&packet_bytes).await;
+    let _ = udp_send.send(b"\n").await;
+
+    debug!("Sent {:?} of {} bytes, checksum {}", packet, packet_bytes.len(), packet_crc);
+
+    if let Some(t_file) = telemetry_file.as_mut() {
+        let _ = t_file.write_all(&packet_bytes).await;
+        let _ = t_file.write_all(b"\n").await;
+        let _ = t_file.flush().await;
+    }
+}
 
 #[instrument(skip_all)]
 async fn command_loop(mut rfd_recv: Box<dyn SerialPort>, info_send: Sender<String>) {
