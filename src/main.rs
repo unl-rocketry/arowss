@@ -30,8 +30,8 @@ const GPS_BAUD: u32 = 9600;
 const GPS_SECONDARY: &str = "/dev/ttyAMA2";
 const GPS_SECONDARY_BAUD: u32 = 115_200;
 
-const UDP_PORT: &str = "0.0.0.0:3939";
-const UDP_TARGET: &str = "192.168.199.1";
+const UDP_PORT: &str = "0.0.0.0:39390";
+const UDP_TARGET: &str = "192.168.199.1:3939";
 
 const HIGH_POWER_RELAY_PIN_NUM: u8 = 26;
 
