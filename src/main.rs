@@ -85,7 +85,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         .await.ok();
 
     let mut udp_send = UdpSocket::bind(UDP_PORT).await.expect("Couldn't bind to socket address");
-    udp_send.connect(UDP_TARGET).await.unwrap();
+    let _ = udp_send.connect(UDP_TARGET).await;
 
     let i2c = Arc::new(Mutex::new(I2cdev::new("/dev/i2c-1").unwrap()));
 
@@ -204,10 +204,14 @@ async fn write_data(
     let _ = rfd_send.flush();
 
     // Write the same data out to the UDP port
-    let _ = udp_send.send(packet_crc.to_string().as_bytes()).await;
-    let _ = udp_send.send(b" ").await;
-    let _ = udp_send.send(&packet_bytes).await;
-    let _ = udp_send.send(b"\n").await;
+    if udp_send.peer_addr().is_err() {
+        let _ = udp_send.connect(UDP_TARGET).await;
+    } else {
+        let _ = udp_send.send(packet_crc.to_string().as_bytes()).await;
+        let _ = udp_send.send(b" ").await;
+        let _ = udp_send.send(&packet_bytes).await;
+        let _ = udp_send.send(b"\n").await;
+    }
 
     debug!("Sent {:?} of {} bytes, checksum {}", packet, packet_bytes.len(), packet_crc);
 
