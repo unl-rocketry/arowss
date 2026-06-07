@@ -150,7 +150,7 @@ async fn sending_loop(mut rfd_send: Box<dyn SerialPort>, info_recv: Receiver<Str
         let temperature = bmp_data.1.unwrap_or(0.0);
 
         // Pressure Altitude Calculation
-        let p_alt = bmp_data.0.map(|p| calculate_barometric_altitude(p as f32) as f64);
+        let p_alt = bmp_data.0.map(|p| calculate_barometric_altitude(p));
 
         let hts_data = *hts_recv.borrow();
         let humidity = hts_data.unwrap_or(0.0);
